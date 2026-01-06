@@ -1,0 +1,722 @@
+import React, { useState, useEffect, useRef } from 'react';
+import {
+  Text,
+  View,
+  TouchableOpacity,
+  ScrollView,
+  Alert,
+  Vibration,
+  StatusBar,
+  Modal,
+  TextInput,
+} from 'react-native';
+import MapView, { Marker, Circle, Region } from 'react-native-maps';
+import * as Location from 'expo-location';
+import * as Notifications from 'expo-notifications';
+import { Audio } from 'expo-av';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as TaskManager from 'expo-task-manager';
+
+// Tipos
+interface Coordinates {
+  lat: number;
+  lng: number;
+  accuracy?: number;
+}
+
+interface Place {
+  name: string;
+  lat: number;
+  lng: number;
+  emoji: string;
+}
+
+type MapMode = 'destination' | 'save-place';
+
+// Configurar el handler de notificaciones
+Notifications.setNotificationHandler({
+  handleNotification: async () => ({
+    shouldShowAlert: true,
+    shouldPlaySound: true,
+    shouldSetBadge: false,
+  }),
+});
+
+// Definir tarea de background
+const LOCATION_TASK_NAME = 'background-location-task';
+const DESTINATION_KEY = '@destination';
+const ALERT_RADIUS_KEY = '@alert_radius';
+
+TaskManager.defineTask(
+  LOCATION_TASK_NAME,
+  async ({ data, error }: TaskManager.TaskManagerTaskBody<Location.LocationTaskEventData>) => {
+    if (error) {
+      console.error(error);
+      return;
+    }
+    if (data) {
+      const { locations } = data;
+      const location = locations[0];
+
+      const destinationStr = await AsyncStorage.getItem(DESTINATION_KEY);
+      const alertRadiusStr = await AsyncStorage.getItem(ALERT_RADIUS_KEY);
+
+      if (destinationStr && alertRadiusStr) {
+        const destination: Place = JSON.parse(destinationStr);
+        const alertRadius = parseFloat(alertRadiusStr);
+
+        const distance = calculateDistance(
+          location.coords.latitude,
+          location.coords.longitude,
+          destination.lat,
+          destination.lng
+        );
+
+        if (distance <= alertRadius) {
+          await Notifications.scheduleNotificationAsync({
+            content: {
+              title: '¡YA LLEGASTE! 🔔',
+              body: `Estás a ${Math.round(distance)}m de ${destination.name}`,
+              sound: true,
+              priority: Notifications.AndroidNotificationPriority.HIGH,
+            },
+            trigger: null,
+          });
+
+          Vibration.vibrate([500, 200, 500, 200, 500]);
+        }
+      }
+    }
+  }
+);
+
+function calculateDistance(lat1: number, lon1: number, lat2: number, lon2: number): number {
+  const R = 6371e3;
+  const φ1 = (lat1 * Math.PI) / 180;
+  const φ2 = (lat2 * Math.PI) / 180;
+  const Δφ = ((lat2 - lat1) * Math.PI) / 180;
+  const Δλ = ((lon2 - lon1) * Math.PI) / 180;
+
+  const a =
+    Math.sin(Δφ / 2) * Math.sin(Δφ / 2) +
+    Math.cos(φ1) * Math.cos(φ2) * Math.sin(Δλ / 2) * Math.sin(Δλ / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+
+  return R * c;
+}
+export default function ScreenContent() {
+  const [destination, setDestination] = useState<Place | null>(null);
+  const [currentLocation, setCurrentLocation] = useState<Coordinates | null>(null);
+  const [distance, setDistance] = useState<number | null>(null);
+  const [isMonitoring, setIsMonitoring] = useState<boolean>(false);
+  const [alertRadius, setAlertRadius] = useState<number>(300);
+  const [hasAlerted, setHasAlerted] = useState<boolean>(false);
+  const [savedPlaces, setSavedPlaces] = useState<Place[]>([]);
+  const [showMapModal, setShowMapModal] = useState<boolean>(false);
+  const [mapMode, setMapMode] = useState<MapMode>('destination');
+  const [selectedMapLocation, setSelectedMapLocation] = useState<Coordinates | null>(null);
+  const [newPlaceName, setNewPlaceName] = useState<string>('');
+  const [showNameModal, setShowNameModal] = useState<boolean>(false);
+
+  const mapRef = useRef<MapView>(null);
+  const soundRef = useRef<Audio.Sound | null>(null);
+  const locationSubscription = useRef<Location.LocationSubscription | null>(null);
+
+  useEffect(() => {
+    requestPermissions();
+    loadSavedPlaces();
+    getCurrentLocation();
+  }, []);
+
+  const requestPermissions = async (): Promise<void> => {
+    const { status: foregroundStatus } = await Location.requestForegroundPermissionsAsync();
+    if (foregroundStatus !== 'granted') {
+      Alert.alert('Permiso requerido', 'Necesitamos acceso a tu ubicación');
+      return;
+    }
+
+    const { status: backgroundStatus } = await Location.requestBackgroundPermissionsAsync();
+    if (backgroundStatus !== 'granted') {
+      Alert.alert(
+        'Permiso de background',
+        'Para alertarte mientras duermes, necesitamos permiso de ubicación en segundo plano'
+      );
+    }
+
+    const { status: notificationStatus } = await Notifications.requestPermissionsAsync();
+    if (notificationStatus !== 'granted') {
+      Alert.alert('Permiso requerido', 'Necesitamos enviar notificaciones para alertarte');
+    }
+  };
+
+  const loadSavedPlaces = async (): Promise<void> => {
+    try {
+      const saved = await AsyncStorage.getItem('@saved_places');
+      if (saved) {
+        setSavedPlaces(JSON.parse(saved));
+      }
+    } catch (e) {
+      console.error('Error cargando lugares:', e);
+    }
+  };
+
+  const savePlaces = async (places: Place[]): Promise<void> => {
+    try {
+      await AsyncStorage.setItem('@saved_places', JSON.stringify(places));
+      setSavedPlaces(places);
+    } catch (e) {
+      console.error('Error guardando lugares:', e);
+    }
+  };
+
+  const getCurrentLocation = async (): Promise<void> => {
+    try {
+      const location = await Location.getCurrentPositionAsync({
+        accuracy: Location.Accuracy.High,
+      });
+      setCurrentLocation({
+        lat: location.coords.latitude,
+        lng: location.coords.longitude,
+        accuracy: location.coords.accuracy ?? undefined,
+      });
+    } catch (error) {
+      Alert.alert('Error', 'No se pudo obtener tu ubicación');
+    }
+  };
+
+  const openMapForDestination = (): void => {
+    setMapMode('destination');
+    setSelectedMapLocation(destination || currentLocation);
+    setShowMapModal(true);
+  };
+
+  const openMapForSavePlace = (): void => {
+    setMapMode('save-place');
+    setSelectedMapLocation(currentLocation);
+    setShowMapModal(true);
+  };
+
+  const confirmMapLocation = (): void => {
+    if (!selectedMapLocation) return;
+
+    if (mapMode === 'destination') {
+      setDestination({
+        name: 'Destino Seleccionado',
+        lat: selectedMapLocation.lat,
+        lng: selectedMapLocation.lng,
+        emoji: '🎯',
+      });
+      setHasAlerted(false);
+      setShowMapModal(false);
+      Alert.alert('✅ Destino establecido', 'Tu destino ha sido seleccionado en el mapa');
+    } else if (mapMode === 'save-place') {
+      setShowMapModal(false);
+      setShowNameModal(true);
+    }
+  };
+
+  const savePlaceWithName = (): void => {
+    if (!newPlaceName.trim() || !selectedMapLocation) {
+      Alert.alert('Error', 'Ingresa un nombre para el lugar');
+      return;
+    }
+
+    const newPlace: Place = {
+      name: newPlaceName.trim(),
+      lat: selectedMapLocation.lat,
+      lng: selectedMapLocation.lng,
+      emoji: '📍',
+    };
+
+    const updated = [...savedPlaces, newPlace];
+    savePlaces(updated);
+    setShowNameModal(false);
+    setNewPlaceName('');
+    Alert.alert('✅ Guardado', `${newPlace.name} guardado exitosamente`);
+  };
+
+  const selectSavedPlace = (place: Place): void => {
+    setDestination(place);
+    setHasAlerted(false);
+    Alert.alert('✅ Destino seleccionado', place.name);
+  };
+
+  const deleteSavedPlace = (index: number): void => {
+    Alert.alert('Eliminar lugar', `¿Eliminar ${savedPlaces[index].name}?`, [
+      { text: 'Cancelar', style: 'cancel' },
+      {
+        text: 'Eliminar',
+        style: 'destructive',
+        onPress: () => {
+          const updated = savedPlaces.filter((_, i) => i !== index);
+          savePlaces(updated);
+        },
+      },
+    ]);
+  };
+
+  const centerMapOnLocation = (location: Coordinates | null): void => {
+    if (mapRef.current && location) {
+      mapRef.current.animateToRegion({
+        latitude: location.lat,
+        longitude: location.lng,
+        latitudeDelta: 0.01,
+        longitudeDelta: 0.01,
+      });
+    }
+  };
+
+  const playAlarm = async (): Promise<void> => {
+    try {
+      const { sound } = await Audio.Sound.createAsync(require('./assets/alarm.mp3'), {
+        shouldPlay: true,
+        isLooping: true,
+        volume: 1.0,
+      });
+      soundRef.current = sound;
+      Vibration.vibrate([500, 200, 500, 200, 500, 200, 500], false);
+    } catch (error) {
+      console.log('Error reproduciendo alarma:', error);
+      Vibration.vibrate([1000, 500, 1000, 500, 1000], false);
+    }
+  };
+
+  const stopAlarm = async (): Promise<void> => {
+    if (soundRef.current) {
+      await soundRef.current.stopAsync();
+      await soundRef.current.unloadAsync();
+      soundRef.current = null;
+    }
+    Vibration.cancel();
+  };
+
+  const toggleMonitoring = async (): Promise<void> => {
+    if (!destination) {
+      Alert.alert('⚠️ Sin destino', 'Primero establece un destino');
+      return;
+    }
+
+    if (isMonitoring) {
+      if (locationSubscription.current) {
+        locationSubscription.current.remove();
+        locationSubscription.current = null;
+      }
+
+      const hasStarted = await Location.hasStartedLocationUpdatesAsync(LOCATION_TASK_NAME);
+      if (hasStarted) {
+        await Location.stopLocationUpdatesAsync(LOCATION_TASK_NAME);
+      }
+
+      setIsMonitoring(false);
+      setHasAlerted(false);
+      stopAlarm();
+      Alert.alert('⏸️ Detenido', 'Monitoreo detenido');
+    } else {
+      setHasAlerted(false);
+
+      await AsyncStorage.setItem(DESTINATION_KEY, JSON.stringify(destination));
+      await AsyncStorage.setItem(ALERT_RADIUS_KEY, alertRadius.toString());
+
+      locationSubscription.current = await Location.watchPositionAsync(
+        {
+          accuracy: Location.Accuracy.High,
+          timeInterval: 5000,
+          distanceInterval: 10,
+        },
+        (location) => {
+          const coords: Coordinates = {
+            lat: location.coords.latitude,
+            lng: location.coords.longitude,
+            accuracy: location.coords.accuracy ?? undefined,
+          };
+          setCurrentLocation(coords);
+
+          const dist = calculateDistance(coords.lat, coords.lng, destination.lat, destination.lng);
+          setDistance(dist);
+
+          if (dist <= alertRadius && !hasAlerted) {
+            setHasAlerted(true);
+            playAlarm();
+
+            Notifications.scheduleNotificationAsync({
+              content: {
+                title: '🔔 ¡YA LLEGASTE!',
+                body: `Estás a ${Math.round(dist)}m de ${destination.name}`,
+                sound: true,
+              },
+              trigger: null,
+            });
+          }
+        }
+      );
+
+      await Location.startLocationUpdatesAsync(LOCATION_TASK_NAME, {
+        accuracy: Location.Accuracy.High,
+        timeInterval: 10000,
+        distanceInterval: 50,
+        foregroundService: {
+          notificationTitle: 'Despiértame al Llegar',
+          notificationBody: `Monitoreando llegada a ${destination.name}`,
+          notificationColor: '#6366f1',
+        },
+      });
+
+      setIsMonitoring(true);
+      Alert.alert(
+        '✅ Monitoreo iniciado',
+        'Te alertaremos cuando llegues. Puedes dormir tranquilo 😴'
+      );
+    }
+  };
+
+  const dismissAlert = (): void => {
+    setHasAlerted(false);
+    stopAlarm();
+  };
+
+  const formatDistance = (meters: number): string => {
+    if (meters < 1000) {
+      return `${Math.round(meters)}m`;
+    }
+    return `${(meters / 1000).toFixed(2)}km`;
+  };
+
+  return (
+    <View className="flex-1 bg-blue-50">
+      <StatusBar barStyle="light-content" />
+
+      {/* Modal del Mapa */}
+      <Modal visible={showMapModal} animationType="slide">
+        <View className="flex-1 bg-white">
+          <View className="flex-row items-center justify-between bg-indigo-500 px-4 pb-4 pt-12">
+            <TouchableOpacity onPress={() => setShowMapModal(false)}>
+              <Text className="rounded-full bg-red-500 p-4 text-base text-white">X</Text>
+            </TouchableOpacity>
+            <Text className="text-lg font-bold text-white">
+              {mapMode === 'destination' ? 'Selecciona tu destino' : 'Selecciona ubicación'}
+            </Text>
+            <TouchableOpacity onPress={confirmMapLocation}>
+              <Text className="text-base font-bold text-white">V</Text>
+            </TouchableOpacity>
+          </View>
+
+          {currentLocation && (
+            <View className="flex-1">
+              <MapView
+                ref={mapRef}
+                style={{ flex: 1 }}
+                initialRegion={{
+                  latitude: selectedMapLocation?.lat || currentLocation.lat,
+                  longitude: selectedMapLocation?.lng || currentLocation.lng,
+                  latitudeDelta: 0.01,
+                  longitudeDelta: 0.01,
+                }}
+                onPress={(e) => {
+                  setSelectedMapLocation({
+                    lat: e.nativeEvent.coordinate.latitude,
+                    lng: e.nativeEvent.coordinate.longitude,
+                  });
+                }}>
+                {currentLocation && (
+                  <Marker
+                    coordinate={{
+                      latitude: currentLocation.lat,
+                      longitude: currentLocation.lng,
+                    }}
+                    title="Tu ubicación"
+                    pinColor="blue"
+                  />
+                )}
+
+                {selectedMapLocation && (
+                  <>
+                    <Marker
+                      coordinate={{
+                        latitude: selectedMapLocation.lat,
+                        longitude: selectedMapLocation.lng,
+                      }}
+                      title={mapMode === 'destination' ? 'Destino' : 'Nuevo lugar'}
+                      pinColor="red"
+                    />
+                    {mapMode === 'destination' && (
+                      <Circle
+                        center={{
+                          latitude: selectedMapLocation.lat,
+                          longitude: selectedMapLocation.lng,
+                        }}
+                        radius={alertRadius}
+                        fillColor="rgba(99, 102, 241, 0.2)"
+                        strokeColor="rgba(99, 102, 241, 0.5)"
+                        strokeWidth={2}
+                      />
+                    )}
+                  </>
+                )}
+
+                {savedPlaces.map((place, index) => (
+                  <Marker
+                    key={index}
+                    coordinate={{
+                      latitude: place.lat,
+                      longitude: place.lng,
+                    }}
+                    title={place.name}
+                    pinColor="green"
+                  />
+                ))}
+              </MapView>
+            </View>
+          )}
+
+          <View className="absolute bottom-5 left-5 right-5 flex-row items-center justify-between">
+            <TouchableOpacity
+              className="rounded-full bg-white px-5 py-3 shadow-lg"
+              onPress={() => centerMapOnLocation(currentLocation)}>
+              <Text className="text-base font-semibold text-gray-800">📍 Mi ubicación</Text>
+            </TouchableOpacity>
+            {mapMode === 'destination' && (
+              <View className="rounded-2xl bg-white px-4 py-2.5 shadow-lg">
+                <Text className="text-sm font-semibold text-indigo-500">
+                  Radio: {formatDistance(alertRadius)}
+                </Text>
+              </View>
+            )}
+          </View>
+        </View>
+      </Modal>
+
+      {/* Modal para nombre del lugar */}
+      <Modal visible={showNameModal} animationType="fade" transparent={true}>
+        <View className="flex-1 items-center justify-center bg-black/50">
+          <View className="w-4/5 max-w-md rounded-3xl bg-white p-6">
+            <Text className="mb-5 text-center text-xl font-bold text-gray-800">
+              Nombre del lugar
+            </Text>
+            <TextInput
+              className="mb-5 rounded-xl border border-gray-300 p-4 text-base"
+              placeholder="Ej: Casa, Trabajo, Gimnasio"
+              value={newPlaceName}
+              onChangeText={setNewPlaceName}
+              autoFocus
+            />
+            <View className="flex-row gap-2.5">
+              <TouchableOpacity
+                className="flex-1 items-center rounded-xl bg-gray-100 p-4"
+                onPress={() => {
+                  setShowNameModal(false);
+                  setNewPlaceName('');
+                }}>
+                <Text className="text-base font-semibold text-gray-600">Cancelar</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                className="flex-1 items-center rounded-xl bg-indigo-500 p-4"
+                onPress={savePlaceWithName}>
+                <Text className="text-base font-bold text-white">Guardar</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      <ScrollView className="flex-1">
+        <View className="rounded-b-[30px] bg-indigo-500 p-8 pt-16">
+          <Text className="mb-1 text-3xl font-bold text-white">🔔 Despiértame</Text>
+          <Text className="text-base text-white/80">Alerta de llegada</Text>
+        </View>
+
+        {hasAlerted && (
+          <View className="m-5 items-center rounded-3xl bg-red-500 p-8">
+            <Text className="mb-2.5 text-6xl">🔔</Text>
+            <Text className="mb-2.5 text-3xl font-bold text-white">¡YA LLEGASTE!</Text>
+            <Text className="mb-1 text-lg text-white/90">Estás cerca de:</Text>
+            <Text className="mb-2.5 text-2xl font-bold text-white">{destination?.name}</Text>
+            <Text className="mb-5 text-xl text-white">{distance && formatDistance(distance)}</Text>
+            <TouchableOpacity className="rounded-2xl bg-white px-8 py-4" onPress={dismissAlert}>
+              <Text className="text-lg font-bold text-red-500">OK, Entendido</Text>
+            </TouchableOpacity>
+          </View>
+        )}
+
+        <View className="m-4 rounded-3xl bg-white p-5 shadow-sm">
+          <Text className="mb-4 text-xl font-bold text-gray-800">🗺️ Mapa</Text>
+          {currentLocation && (
+            <View className="mb-4 overflow-hidden rounded-2xl">
+              <MapView
+                className="h-48 w-full"
+                region={{
+                  latitude: currentLocation.lat,
+                  longitude: currentLocation.lng,
+                  latitudeDelta: 0.02,
+                  longitudeDelta: 0.02,
+                }}
+                scrollEnabled={false}
+                zoomEnabled={false}>
+                <Marker
+                  coordinate={{
+                    latitude: currentLocation.lat,
+                    longitude: currentLocation.lng,
+                  }}
+                  pinColor="blue"
+                />
+                {destination && (
+                  <>
+                    <Marker
+                      coordinate={{
+                        latitude: destination.lat,
+                        longitude: destination.lng,
+                      }}
+                      pinColor="red"
+                    />
+                    <Circle
+                      center={{
+                        latitude: destination.lat,
+                        longitude: destination.lng,
+                      }}
+                      radius={alertRadius}
+                      fillColor="rgba(99, 102, 241, 0.2)"
+                      strokeColor="rgba(99, 102, 241, 0.5)"
+                      strokeWidth={2}
+                    />
+                  </>
+                )}
+                {savedPlaces.map((place, index) => (
+                  <Marker
+                    key={index}
+                    coordinate={{
+                      latitude: place.lat,
+                      longitude: place.lng,
+                    }}
+                    pinColor="green"
+                  />
+                ))}
+              </MapView>
+              <TouchableOpacity
+                className="items-center bg-indigo-500 p-3"
+                onPress={openMapForDestination}>
+                <Text className="text-base font-semibold text-white">📍 Abrir mapa completo</Text>
+              </TouchableOpacity>
+            </View>
+          )}
+        </View>
+
+        <View className="m-4 rounded-3xl bg-white p-5 shadow-sm">
+          <Text className="mb-4 text-xl font-bold text-gray-800">🎯 Mi Destino</Text>
+          {destination ? (
+            <View className="mb-4 rounded-2xl bg-indigo-100 p-5">
+              <Text className="mb-1 text-xl font-bold text-indigo-950">{destination.name}</Text>
+              <Text className="mb-2.5 text-xs text-indigo-700">
+                {destination.lat.toFixed(6)}, {destination.lng.toFixed(6)}
+              </Text>
+              {distance !== null && (
+                <Text className="text-2xl font-bold text-indigo-950">
+                  {formatDistance(distance)}
+                </Text>
+              )}
+            </View>
+          ) : (
+            <Text className="mb-4 text-sm text-gray-400">No hay destino establecido</Text>
+          )}
+          <TouchableOpacity
+            className="items-center rounded-xl bg-indigo-500 p-4"
+            onPress={openMapForDestination}>
+            <Text className="text-base font-bold text-white">📍 Seleccionar en Mapa</Text>
+          </TouchableOpacity>
+        </View>
+
+        <View className="m-4 rounded-3xl bg-white p-5 shadow-sm">
+          <View className="mb-4 flex-row items-center justify-between">
+            <Text className="text-xl font-bold text-gray-800">⭐ Lugares Guardados</Text>
+            <TouchableOpacity onPress={openMapForSavePlace}>
+              <Text className="text-base font-bold text-indigo-500">+ Agregar</Text>
+            </TouchableOpacity>
+          </View>
+          {savedPlaces.length === 0 ? (
+            <Text className="my-5 text-center text-gray-400">No hay lugares guardados</Text>
+          ) : (
+            savedPlaces.map((place, index) => (
+              <TouchableOpacity
+                key={index}
+                className="mb-2.5 flex-row items-center justify-between rounded-xl bg-gray-50 p-4"
+                onPress={() => selectSavedPlace(place)}
+                onLongPress={() => deleteSavedPlace(index)}>
+                <View className="flex-row items-center gap-3">
+                  <Text className="text-3xl">{place.emoji}</Text>
+                  <View>
+                    <Text className="text-base font-semibold text-gray-800">{place.name}</Text>
+                    <Text className="text-xs text-gray-500">
+                      {place.lat.toFixed(4)}, {place.lng.toFixed(4)}
+                    </Text>
+                  </View>
+                </View>
+                <Text className="text-2xl text-gray-400">›</Text>
+              </TouchableOpacity>
+            ))
+          )}
+          <Text className="mt-2.5 text-center text-xs text-gray-400">
+            Mantén presionado para eliminar
+          </Text>
+        </View>
+
+        <View className="m-4 rounded-3xl bg-white p-5 shadow-sm">
+          <Text className="mb-4 text-xl font-bold text-gray-800">⚙️ Radio de Alerta</Text>
+          <View className="gap-2.5">
+            {[100, 200, 300, 500, 1000].map((radius) => (
+              <TouchableOpacity
+                key={radius}
+                className={`items-center rounded-xl p-4 ${
+                  alertRadius === radius ? 'bg-indigo-500' : 'bg-gray-100'
+                }`}
+                onPress={() => setAlertRadius(radius)}>
+                <Text
+                  className={`text-base font-semibold ${
+                    alertRadius === radius ? 'text-white' : 'text-gray-700'
+                  }`}>
+                  {formatDistance(radius)}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+        </View>
+
+        <TouchableOpacity
+          className={`m-5 items-center rounded-2xl p-5 ${
+            !destination ? 'bg-gray-300' : isMonitoring ? 'bg-red-500' : 'bg-green-500'
+          }`}
+          onPress={toggleMonitoring}
+          disabled={!destination}>
+          <Text className="text-lg font-bold text-white">
+            {isMonitoring ? '⏹️ Detener Monitoreo' : '▶️ Iniciar Monitoreo'}
+          </Text>
+        </TouchableOpacity>
+
+        {isMonitoring && (
+          <View className="mb-5 flex-row items-center justify-center gap-2.5">
+            <View className="h-2.5 w-2.5 rounded-full bg-green-500" />
+            <Text className="text-base font-semibold text-green-600">
+              Monitoreando tu ubicación
+            </Text>
+          </View>
+        )}
+
+        <View className="m-4 mb-10 rounded-3xl bg-white p-5 shadow-sm">
+          <Text className="mb-4 text-lg font-bold text-gray-800">💡 Cómo usar:</Text>
+          <Text className="mb-2 text-sm leading-5 text-gray-600">
+            1️⃣ Toca el mapa para seleccionar tu destino
+          </Text>
+          <Text className="mb-2 text-sm leading-5 text-gray-600">
+            2️⃣ Guarda tus lugares frecuentes para acceso rápido
+          </Text>
+          <Text className="mb-2 text-sm leading-5 text-gray-600">
+            3️⃣ Configura a qué distancia quieres la alerta
+          </Text>
+          <Text className="mb-2 text-sm leading-5 text-gray-600">
+            4️⃣ Inicia el monitoreo y duerme tranquilo 😴
+          </Text>
+          <Text className="text-sm leading-5 text-gray-600">
+            📱 Usando mapas nativos: Apple Maps (iOS) / Sistema (Android)
+          </Text>
+        </View>
+      </ScrollView>
+    </View>
+  );
+}
