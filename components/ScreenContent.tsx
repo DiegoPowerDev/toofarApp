@@ -1,4 +1,14 @@
 import React, { useState, useEffect, useRef } from 'react';
+import Entypo from '@expo/vector-icons/Entypo';
+import Feather from '@expo/vector-icons/Feather';
+
+import MaterialIcons from '@expo/vector-icons/MaterialIcons';
+
+import FontAwesome5 from '@expo/vector-icons/FontAwesome5';
+
+import FontAwesome from '@expo/vector-icons/FontAwesome';
+
+import AntDesign from '@expo/vector-icons/AntDesign';
 import {
   Text,
   View,
@@ -16,6 +26,8 @@ import * as Notifications from 'expo-notifications';
 import { Audio } from 'expo-av';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as TaskManager from 'expo-task-manager';
+import { showToast } from 'utils/toast';
+import Toast from 'react-native-toast-message';
 
 // Tipos
 interface Coordinates {
@@ -75,8 +87,8 @@ TaskManager.defineTask(
         if (distance <= alertRadius) {
           await Notifications.scheduleNotificationAsync({
             content: {
-              title: '¡YA LLEGASTE! 🔔',
-              body: `Estás a ${Math.round(distance)}m de ${destination.name}`,
+              title: '¡ATENCIÓN!',
+              body: `Estás a cerca de ${destination.name}`,
               sound: true,
               priority: Notifications.AndroidNotificationPriority.HIGH,
             },
@@ -131,21 +143,22 @@ export default function ScreenContent() {
   const requestPermissions = async (): Promise<void> => {
     const { status: foregroundStatus } = await Location.requestForegroundPermissionsAsync();
     if (foregroundStatus !== 'granted') {
-      Alert.alert('Permiso requerido', 'Necesitamos acceso a tu ubicación');
+      showToast('info', 'Permiso requerido', 'Necesitamos acceso a tu ubicación');
       return;
     }
 
     const { status: backgroundStatus } = await Location.requestBackgroundPermissionsAsync();
     if (backgroundStatus !== 'granted') {
-      Alert.alert(
-        'Permiso de background',
+      showToast(
+        'info',
+        'Permiso de sistema',
         'Para alertarte mientras duermes, necesitamos permiso de ubicación en segundo plano'
       );
     }
 
     const { status: notificationStatus } = await Notifications.requestPermissionsAsync();
     if (notificationStatus !== 'granted') {
-      Alert.alert('Permiso requerido', 'Necesitamos enviar notificaciones para alertarte');
+      showToast('info', 'Permiso requerido', 'Necesitamos enviar notificaciones para alertarte');
     }
   };
 
@@ -180,7 +193,7 @@ export default function ScreenContent() {
         accuracy: location.coords.accuracy ?? undefined,
       });
     } catch (error) {
-      Alert.alert('Error', 'No se pudo obtener tu ubicación');
+      showToast('error', 'No se pudo obtener tu ubicación');
     }
   };
 
@@ -208,7 +221,7 @@ export default function ScreenContent() {
       });
       setHasAlerted(false);
       setShowMapModal(false);
-      Alert.alert('✅ Destino establecido', 'Tu destino ha sido seleccionado en el mapa');
+      showToast('success', ' Destino establecido', 'Toca en "Comenzemos para iniciar');
     } else if (mapMode === 'save-place') {
       setShowMapModal(false);
       setShowNameModal(true);
@@ -217,7 +230,7 @@ export default function ScreenContent() {
 
   const savePlaceWithName = (): void => {
     if (!newPlaceName.trim() || !selectedMapLocation) {
-      Alert.alert('Error', 'Ingresa un nombre para el lugar');
+      showToast('error', 'Ingresa un nombre para el lugar');
       return;
     }
 
@@ -232,27 +245,36 @@ export default function ScreenContent() {
     savePlaces(updated);
     setShowNameModal(false);
     setNewPlaceName('');
-    Alert.alert('✅ Guardado', `${newPlace.name} guardado exitosamente`);
+    showToast('success', '💾 Guardado', `${newPlace.name} guardado exitosamente`);
   };
 
   const selectSavedPlace = (place: Place): void => {
     setDestination(place);
     setHasAlerted(false);
-    Alert.alert('✅ Destino seleccionado', place.name);
+    showToast('success', '🚩 Destino seleccionado', place.name);
   };
 
   const deleteSavedPlace = (index: number): void => {
-    Alert.alert('Eliminar lugar', `¿Eliminar ${savedPlaces[index].name}?`, [
-      { text: 'Cancelar', style: 'cancel' },
-      {
-        text: 'Eliminar',
-        style: 'destructive',
-        onPress: () => {
+    Toast.show({
+      type: 'confirmDelete',
+      text1: `¿Eliminar ${savedPlaces[index].name}?`,
+      position: 'top',
+      autoHide: false,
+      props: {
+        onCancel: () => Toast.hide(),
+        onConfirm: () => {
           const updated = savedPlaces.filter((_, i) => i !== index);
           savePlaces(updated);
+          Toast.hide();
+
+          Toast.show({
+            type: 'error',
+            text1: 'Eliminado',
+            position: 'top',
+          });
         },
       },
-    ]);
+    });
   };
 
   const centerMapOnLocation = (location: Coordinates | null): void => {
@@ -292,7 +314,7 @@ export default function ScreenContent() {
 
   const toggleMonitoring = async (): Promise<void> => {
     if (!destination) {
-      Alert.alert('⚠️ Sin destino', 'Primero establece un destino');
+      showToast('error', 'Sin destino', 'Primero establece un destino');
       return;
     }
 
@@ -310,7 +332,7 @@ export default function ScreenContent() {
       setIsMonitoring(false);
       setHasAlerted(false);
       stopAlarm();
-      Alert.alert('⏸️ Detenido', 'Monitoreo detenido');
+      showToast('error', 'Detenido', 'Monitoreo detenido');
     } else {
       setHasAlerted(false);
 
@@ -362,10 +384,7 @@ export default function ScreenContent() {
       });
 
       setIsMonitoring(true);
-      Alert.alert(
-        '✅ Monitoreo iniciado',
-        'Te alertaremos cuando llegues. Puedes dormir tranquilo 😴'
-      );
+      showToast('success', 'Alerta iniciada', 'Te avisaremos cuando estes cerca');
     }
   };
 
@@ -376,27 +395,31 @@ export default function ScreenContent() {
 
   const formatDistance = (meters: number): string => {
     if (meters < 1000) {
-      return `${Math.round(meters)}m`;
+      return `${Math.round(meters)} metros`;
     }
-    return `${(meters / 1000).toFixed(2)}km`;
+    return `${(meters / 1000).toFixed(2)} kilometros`;
   };
 
   return (
-    <View className="flex-1 bg-blue-50">
+    <View className="flex-1 bg-black/80">
       <StatusBar barStyle="light-content" />
 
       {/* Modal del Mapa */}
       <Modal visible={showMapModal} animationType="slide">
         <View className="flex-1 bg-white">
-          <View className="flex-row items-center justify-between bg-indigo-500 px-4 pb-4 pt-12">
+          <View className="flex-row items-center justify-between bg-amber-600 px-4 pb-4 pt-12">
             <TouchableOpacity onPress={() => setShowMapModal(false)}>
-              <Text className="rounded-full bg-red-500 p-4 text-base text-white">X</Text>
+              <View className="rounded-full bg-red-500 p-2">
+                <AntDesign name="close" size={24} color="white" />
+              </View>
             </TouchableOpacity>
             <Text className="text-lg font-bold text-white">
               {mapMode === 'destination' ? 'Selecciona tu destino' : 'Selecciona ubicación'}
             </Text>
             <TouchableOpacity onPress={confirmMapLocation}>
-              <Text className="text-base font-bold text-white">V</Text>
+              <View className="rounded-full bg-green-500 p-2">
+                <AntDesign name="check" size={24} color="white" />
+              </View>
             </TouchableOpacity>
           </View>
 
@@ -445,8 +468,8 @@ export default function ScreenContent() {
                           longitude: selectedMapLocation.lng,
                         }}
                         radius={alertRadius}
-                        fillColor="rgba(99, 102, 241, 0.2)"
-                        strokeColor="rgba(99, 102, 241, 0.5)"
+                        fillColor="#C1502430"
+                        strokeColor="#C1502450"
                         strokeWidth={2}
                       />
                     )}
@@ -477,7 +500,7 @@ export default function ScreenContent() {
             {mapMode === 'destination' && (
               <View className="rounded-2xl bg-white px-4 py-2.5 shadow-lg">
                 <Text className="text-sm font-semibold text-indigo-500">
-                  Radio: {formatDistance(alertRadius)}
+                  Alerta: {formatDistance(alertRadius)}
                 </Text>
               </View>
             )}
@@ -509,7 +532,7 @@ export default function ScreenContent() {
                 <Text className="text-base font-semibold text-gray-600">Cancelar</Text>
               </TouchableOpacity>
               <TouchableOpacity
-                className="flex-1 items-center rounded-xl bg-indigo-500 p-4"
+                className="flex-1 items-center rounded-xl bg-amber-600 p-4"
                 onPress={savePlaceWithName}>
                 <Text className="text-base font-bold text-white">Guardar</Text>
               </TouchableOpacity>
@@ -519,8 +542,8 @@ export default function ScreenContent() {
       </Modal>
 
       <ScrollView className="flex-1">
-        <View className="rounded-b-[30px] bg-indigo-500 p-8 pt-16">
-          <Text className="mb-1 text-3xl font-bold text-white">🔔 Despiértame</Text>
+        <View className=" bg-amber-600 p-8 pt-16">
+          <Text className="mb-1 text-3xl font-bold text-white">🔔 GPS Amigo</Text>
           <Text className="text-base text-white/80">Alerta de llegada</Text>
         </View>
 
@@ -538,7 +561,10 @@ export default function ScreenContent() {
         )}
 
         <View className="m-4 rounded-3xl bg-white p-5 shadow-sm">
-          <Text className="mb-4 text-xl font-bold text-gray-800">🗺️ Mapa</Text>
+          <View className="mb-4 flex flex-row items-center gap-2">
+            <Entypo name="map" size={24} color="black" />
+            <Text className=" text-xl font-bold text-gray-800"> Mapa</Text>
+          </View>
           {currentLocation && (
             <View className="mb-4 overflow-hidden rounded-2xl">
               <MapView
@@ -591,7 +617,7 @@ export default function ScreenContent() {
                 ))}
               </MapView>
               <TouchableOpacity
-                className="items-center bg-indigo-500 p-3"
+                className="items-center bg-amber-600 p-3"
                 onPress={openMapForDestination}>
                 <Text className="text-base font-semibold text-white">📍 Abrir mapa completo</Text>
               </TouchableOpacity>
@@ -600,7 +626,10 @@ export default function ScreenContent() {
         </View>
 
         <View className="m-4 rounded-3xl bg-white p-5 shadow-sm">
-          <Text className="mb-4 text-xl font-bold text-gray-800">🎯 Mi Destino</Text>
+          <View className="flex flex-row gap-2">
+            <Feather name="target" size={24} color="black" />
+            <Text className="mb-4 text-xl font-bold text-gray-800">Mi Destino</Text>
+          </View>
           {destination ? (
             <View className="mb-4 rounded-2xl bg-indigo-100 p-5">
               <Text className="mb-1 text-xl font-bold text-indigo-950">{destination.name}</Text>
@@ -609,7 +638,7 @@ export default function ScreenContent() {
               </Text>
               {distance !== null && (
                 <Text className="text-2xl font-bold text-indigo-950">
-                  {formatDistance(distance)}
+                  Estas a: {formatDistance(distance)}
                 </Text>
               )}
             </View>
@@ -617,7 +646,7 @@ export default function ScreenContent() {
             <Text className="mb-4 text-sm text-gray-400">No hay destino establecido</Text>
           )}
           <TouchableOpacity
-            className="items-center rounded-xl bg-indigo-500 p-4"
+            className="items-center rounded-xl bg-amber-600 p-4"
             onPress={openMapForDestination}>
             <Text className="text-base font-bold text-white">📍 Seleccionar en Mapa</Text>
           </TouchableOpacity>
@@ -625,7 +654,10 @@ export default function ScreenContent() {
 
         <View className="m-4 rounded-3xl bg-white p-5 shadow-sm">
           <View className="mb-4 flex-row items-center justify-between">
-            <Text className="text-xl font-bold text-gray-800">⭐ Lugares Guardados</Text>
+            <View className="flex flex-row gap-2">
+              <AntDesign name="star" size={24} color="yellow" />
+              <Text className="text-xl font-bold text-gray-800">Mis lugares</Text>
+            </View>
             <TouchableOpacity onPress={openMapForSavePlace}>
               <Text className="text-base font-bold text-indigo-500">+ Agregar</Text>
             </TouchableOpacity>
@@ -658,13 +690,16 @@ export default function ScreenContent() {
         </View>
 
         <View className="m-4 rounded-3xl bg-white p-5 shadow-sm">
-          <Text className="mb-4 text-xl font-bold text-gray-800">⚙️ Radio de Alerta</Text>
+          <View className="mb-2 flex w-full flex-row items-center gap-2">
+            <MaterialIcons name="radar" size={24} color="black" />
+            <Text className="text-xl font-bold text-gray-800">Distancia de Alerta</Text>
+          </View>
           <View className="gap-2.5">
             {[100, 200, 300, 500, 1000].map((radius) => (
               <TouchableOpacity
                 key={radius}
                 className={`items-center rounded-xl p-4 ${
-                  alertRadius === radius ? 'bg-indigo-500' : 'bg-gray-100'
+                  alertRadius === radius ? 'bg-amber-600' : 'bg-gray-100'
                 }`}
                 onPress={() => setAlertRadius(radius)}>
                 <Text
@@ -684,17 +719,23 @@ export default function ScreenContent() {
           }`}
           onPress={toggleMonitoring}
           disabled={!destination}>
-          <Text className="text-lg font-bold text-white">
-            {isMonitoring ? '⏹️ Detener Monitoreo' : '▶️ Iniciar Monitoreo'}
-          </Text>
+          {isMonitoring ? (
+            <View className="flex w-full flex-row items-center justify-center gap-2">
+              <Text className="text-lg font-bold text-white">Detener</Text>
+              <FontAwesome name="hand-stop-o" size={24} color="white" />
+            </View>
+          ) : (
+            <View className="flex w-full flex-row items-center justify-center gap-2">
+              <FontAwesome5 name="running" size={24} color="white" />
+              <Text className="text-lg font-bold text-white">Comenzemos</Text>
+            </View>
+          )}
         </TouchableOpacity>
 
         {isMonitoring && (
           <View className="mb-5 flex-row items-center justify-center gap-2.5">
             <View className="h-2.5 w-2.5 rounded-full bg-green-500" />
-            <Text className="text-base font-semibold text-green-600">
-              Monitoreando tu ubicación
-            </Text>
+            <Text className="text-base font-semibold text-green-600">Alerta activada</Text>
           </View>
         )}
 
@@ -710,10 +751,10 @@ export default function ScreenContent() {
             3️⃣ Configura a qué distancia quieres la alerta
           </Text>
           <Text className="mb-2 text-sm leading-5 text-gray-600">
-            4️⃣ Inicia el monitoreo y duerme tranquilo 😴
+            4️⃣ Inicia la alerta y duerme tranquilo 😴
           </Text>
           <Text className="text-sm leading-5 text-gray-600">
-            📱 Usando mapas nativos: Apple Maps (iOS) / Sistema (Android)
+            📱 Usando mapas nativos del celular, funcionan aun sin conexión a internet😁
           </Text>
         </View>
       </ScrollView>
