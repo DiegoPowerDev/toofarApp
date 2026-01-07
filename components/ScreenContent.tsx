@@ -152,7 +152,7 @@ export default function ScreenContent() {
       showToast(
         'info',
         'Permiso de sistema',
-        'Para alertarte mientras duermes, necesitamos permiso de ubicación en segundo plano'
+        'Para avisarte, necesitamos permiso de ubicación en segundo plano'
       );
     }
 
@@ -750,9 +750,7 @@ export default function ScreenContent() {
           <Text className="mb-2 text-sm leading-5 text-gray-600">
             3️⃣ Configura a qué distancia quieres la alerta
           </Text>
-          <Text className="mb-2 text-sm leading-5 text-gray-600">
-            4️⃣ Inicia la alerta y duerme tranquilo 😴
-          </Text>
+          <Text className="mb-2 text-sm leading-5 text-gray-600">4️⃣ Iniciada la alerta</Text>
           <Text className="text-sm leading-5 text-gray-600">
             📱 Usando mapas nativos del celular, funcionan aun sin conexión a internet😁
           </Text>
