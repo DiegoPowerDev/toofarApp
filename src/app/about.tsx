@@ -1,4 +1,8 @@
 import React from 'react';
+import Ionicons from '@expo/vector-icons/Ionicons';
+
+import AntDesign from '@expo/vector-icons/AntDesign';
+
 import FontAwesome6 from '@expo/vector-icons/FontAwesome6';
 
 import Foundation from '@expo/vector-icons/Foundation';
@@ -24,12 +28,18 @@ export default function About() {
     <View className="flex-1 bg-black/80">
       <ScrollView className="flex-1">
         {/* Header */}
-        <View className=" bg-amber-600 p-8 ">
+        <View className=" flex bg-amber-600 p-8  ">
           <TouchableOpacity onPress={() => router.push('/')} className="mb-4">
-            <Text className="text-base text-white">← Volver</Text>
+            <View className="flex-row gap-2">
+              <Ionicons name="arrow-back" size={24} color="white" />
+              <Text className="text-base text-white">Volver</Text>
+            </View>
           </TouchableOpacity>
-          <Text className="mb-1 text-3xl font-bold text-white">ℹ️ Acerca de</Text>
-          <Text className="text-base text-white/80">GPS Amigo v1.0.0</Text>
+          <View className="flex-row items-center gap-2">
+            <AntDesign name="info-circle" size={24} color="white" />
+            <Text className="mb-1 text-3xl font-bold text-white">Acerca de</Text>
+          </View>
+          <Text className="text-base text-white/80">GPS Amigo v0.1.0</Text>
         </View>
 
         {/* Descripción */}

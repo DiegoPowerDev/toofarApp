@@ -2,29 +2,23 @@ import React, { useState, useEffect, useRef } from 'react';
 
 import Entypo from '@expo/vector-icons/Entypo';
 import Feather from '@expo/vector-icons/Feather';
-
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
-
 import FontAwesome5 from '@expo/vector-icons/FontAwesome5';
-
 import FontAwesome from '@expo/vector-icons/FontAwesome';
-
 import AntDesign from '@expo/vector-icons/AntDesign';
 import {
   Text,
   View,
   TouchableOpacity,
   ScrollView,
-  Alert,
   Vibration,
   StatusBar,
   Modal,
   TextInput,
 } from 'react-native';
-import MapView, { Marker, Circle, Region } from 'react-native-maps';
+import MapView, { Marker, Circle } from 'react-native-maps';
 import * as Location from 'expo-location';
 import * as Notifications from 'expo-notifications';
-import { Audio } from 'expo-av';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as TaskManager from 'expo-task-manager';
 import { showToast } from 'utils/toast';
@@ -57,10 +51,24 @@ Notifications.setNotificationHandler({
     shouldShowList: true,
   }),
 });
+
+// Definir categoría de notificación con acción de detener
+Notifications.setNotificationCategoryAsync('ALERT_CATEGORY', [
+  {
+    identifier: 'STOP_MONITORING',
+    buttonTitle: 'Detener Alerta',
+    options: {
+      opensAppToForeground: false,
+    },
+  },
+]);
+
 // Definir tarea de background
 const LOCATION_TASK_NAME = 'background-location-task';
 const DESTINATION_KEY = '@destination';
 const ALERT_RADIUS_KEY = '@alert_radius';
+const ALERT_SHOWN_KEY = '@alert_shown';
+const IS_MONITORING_KEY = '@is_monitoring';
 
 TaskManager.defineTask(LOCATION_TASK_NAME, async ({ data, error }: any) => {
   if (error) {
@@ -73,10 +81,12 @@ TaskManager.defineTask(LOCATION_TASK_NAME, async ({ data, error }: any) => {
 
     const destinationStr = await AsyncStorage.getItem(DESTINATION_KEY);
     const alertRadiusStr = await AsyncStorage.getItem(ALERT_RADIUS_KEY);
+    const alertShownStr = await AsyncStorage.getItem(ALERT_SHOWN_KEY);
 
     if (destinationStr && alertRadiusStr) {
       const destination: Place = JSON.parse(destinationStr);
       const alertRadius = parseFloat(alertRadiusStr);
+      const alertShown = alertShownStr === 'true';
 
       const distance = calculateDistance(
         location.coords.latitude,
@@ -85,13 +95,18 @@ TaskManager.defineTask(LOCATION_TASK_NAME, async ({ data, error }: any) => {
         destination.lng
       );
 
-      if (distance <= alertRadius) {
+      // Solo alertar UNA VEZ cuando entra al radio
+      if (distance <= alertRadius && !alertShown) {
+        await AsyncStorage.setItem(ALERT_SHOWN_KEY, 'true');
+
         await Notifications.scheduleNotificationAsync({
           content: {
-            title: '¡ATENCIÓN!',
-            body: `Estás a cerca de ${destination.name}`,
+            title: '🔔 ¡LLEGASTE A TU DESTINO!',
+            body: `Estás a ${Math.round(distance)}m de ${destination.name}`,
             sound: true,
             priority: Notifications.AndroidNotificationPriority.HIGH,
+            categoryIdentifier: 'ALERT_CATEGORY',
+            data: { action: 'stop_monitoring' },
           },
           trigger: null,
         });
@@ -116,6 +131,7 @@ function calculateDistance(lat1: number, lon1: number, lat2: number, lon2: numbe
 
   return R * c;
 }
+
 export default function Index() {
   const [destination, setDestination] = useState<Place | null>(null);
   const [currentLocation, setCurrentLocation] = useState<Coordinates | null>(null);
@@ -129,16 +145,123 @@ export default function Index() {
   const [selectedMapLocation, setSelectedMapLocation] = useState<Coordinates | null>(null);
   const [newPlaceName, setNewPlaceName] = useState<string>('');
   const [showNameModal, setShowNameModal] = useState<boolean>(false);
+  const [placeDistances, setPlaceDistances] = useState<{ [key: number]: number }>({});
 
   const mapRef = useRef<MapView>(null);
-  const soundRef = useRef<Audio.Sound | null>(null);
   const locationSubscription = useRef<Location.LocationSubscription | null>(null);
+  const notificationListener = useRef<Notifications.Subscription | undefined>(undefined);
+  const responseListener = useRef<Notifications.Subscription | undefined>(undefined);
+  const alarmIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const router = useRouter();
+
   useEffect(() => {
     requestPermissions();
     loadSavedPlaces();
     getCurrentLocation();
+    setupNotificationListeners();
+
+    return () => {
+      if (notificationListener.current) {
+        notificationListener.current.remove();
+      }
+      if (responseListener.current) {
+        responseListener.current.remove();
+      }
+      if (alarmIntervalRef.current) {
+        clearInterval(alarmIntervalRef.current);
+      }
+      Vibration.cancel();
+    };
   }, []);
+
+  // Calcular distancias automáticamente
+  useEffect(() => {
+    if (currentLocation) {
+      // Calcular distancia al destino
+      if (destination) {
+        const dist = calculateDistance(
+          currentLocation.lat,
+          currentLocation.lng,
+          destination.lat,
+          destination.lng
+        );
+        setDistance(dist);
+      }
+
+      // Calcular distancias a lugares guardados
+      calculatePlaceDistances();
+    }
+  }, [currentLocation, destination, savedPlaces]);
+
+  // Actualizar ubicación cada 5 segundos
+  useEffect(() => {
+    const interval = setInterval(() => {
+      getCurrentLocation();
+    }, 5000);
+
+    return () => clearInterval(interval);
+  }, []);
+
+  const setupNotificationListeners = () => {
+    notificationListener.current = Notifications.addNotificationReceivedListener((notification) => {
+      console.log('Notificación recibida:', notification);
+    });
+
+    responseListener.current = Notifications.addNotificationResponseReceivedListener(
+      async (response) => {
+        if (response.actionIdentifier === 'STOP_MONITORING') {
+          await stopMonitoringFromNotification();
+        }
+      }
+    );
+  };
+
+  const stopMonitoringFromNotification = async () => {
+    try {
+      if (locationSubscription.current) {
+        locationSubscription.current.remove();
+        locationSubscription.current = null;
+      }
+
+      const hasStarted = await Location.hasStartedLocationUpdatesAsync(LOCATION_TASK_NAME);
+      if (hasStarted) {
+        await Location.stopLocationUpdatesAsync(LOCATION_TASK_NAME);
+      }
+
+      await AsyncStorage.removeItem(ALERT_SHOWN_KEY);
+      await AsyncStorage.setItem(IS_MONITORING_KEY, 'false');
+      setIsMonitoring(false);
+      setHasAlerted(false);
+      await stopAlarm();
+
+      await Notifications.scheduleNotificationAsync({
+        content: {
+          title: '⏸️ Monitoreo Detenido',
+          body: 'La alerta ha sido desactivada',
+          sound: false,
+        },
+        trigger: null,
+      });
+    } catch (error) {
+      console.error('Error deteniendo desde notificación:', error);
+    }
+  };
+
+  const calculatePlaceDistances = () => {
+    if (!currentLocation) return;
+
+    const distances: { [key: number]: number } = {};
+    savedPlaces.forEach((place, index) => {
+      const dist = calculateDistance(
+        currentLocation.lat,
+        currentLocation.lng,
+        place.lat,
+        place.lng
+      );
+      distances[index] = dist;
+    });
+    setPlaceDistances(distances);
+  };
 
   const requestPermissions = async (): Promise<void> => {
     const { status: foregroundStatus } = await Location.requestForegroundPermissionsAsync();
@@ -193,7 +316,8 @@ export default function Index() {
         accuracy: location.coords.accuracy ?? undefined,
       });
     } catch (error) {
-      showToast('error', 'No se pudo obtener tu ubicación');
+      // Silenciar error para no molestar al usuario
+      console.log('Error obteniendo ubicación:', error);
     }
   };
 
@@ -209,19 +333,24 @@ export default function Index() {
     setShowMapModal(true);
   };
 
-  const confirmMapLocation = (): void => {
+  const confirmMapLocation = async (): Promise<void> => {
     if (!selectedMapLocation) return;
 
     if (mapMode === 'destination') {
-      setDestination({
+      const newDestination: Place = {
         name: 'Destino Seleccionado',
         lat: selectedMapLocation.lat,
         lng: selectedMapLocation.lng,
         emoji: '🎯',
-      });
+      };
+      setDestination(newDestination);
       setHasAlerted(false);
+
+      // Resetear flag de alerta cuando se cambia el destino
+      await AsyncStorage.removeItem(ALERT_SHOWN_KEY);
+
       setShowMapModal(false);
-      showToast('success', ' Destino establecido', 'Toca en "Comenzemos para iniciar');
+      showToast('success', '🎯 Destino establecido', 'Toca "Comenzemos" para iniciar');
     } else if (mapMode === 'save-place') {
       setShowMapModal(false);
       setShowNameModal(true);
@@ -248,9 +377,13 @@ export default function Index() {
     showToast('success', '💾 Guardado', `${newPlace.name} guardado exitosamente`);
   };
 
-  const selectSavedPlace = (place: Place): void => {
+  const selectSavedPlace = async (place: Place): Promise<void> => {
     setDestination(place);
     setHasAlerted(false);
+
+    // Resetear flag de alerta cuando se selecciona un nuevo lugar
+    await AsyncStorage.removeItem(ALERT_SHOWN_KEY);
+
     showToast('success', '🚩 Destino seleccionado', place.name);
   };
 
@@ -290,26 +423,55 @@ export default function Index() {
 
   const playAlarm = async (): Promise<void> => {
     try {
-      const { sound } = await Audio.Sound.createAsync(require('./assets/alarm.mp3'), {
-        shouldPlay: true,
-        isLooping: true,
-        volume: 1.0,
+      // Vibración continua (se repite indefinidamente)
+      const vibratePattern = [1000, 500]; // 1 segundo vibrar, 0.5 segundo pausa
+      Vibration.vibrate(vibratePattern, true); // true = repetir indefinidamente
+
+      // Enviar notificación inicial
+      await Notifications.scheduleNotificationAsync({
+        content: {
+          title: '🔔 ¡LLEGASTE A TU DESTINO!',
+          body: 'Presiona "Detener Alerta" para silenciar',
+          sound: true,
+          priority: Notifications.AndroidNotificationPriority.MAX,
+          categoryIdentifier: 'ALERT_CATEGORY',
+          sticky: true, // Hace que la notificación sea persistente
+        },
+        trigger: null,
       });
-      soundRef.current = sound;
-      Vibration.vibrate([500, 200, 500, 200, 500, 200, 500], false);
+
+      // Crear intervalo para notificaciones repetidas cada 2 segundos
+      alarmIntervalRef.current = setInterval(async () => {
+        await Notifications.scheduleNotificationAsync({
+          content: {
+            title: '🔔 ¡LLEGASTE!',
+            body: 'Toca para detener la alerta',
+            sound: true,
+            priority: Notifications.AndroidNotificationPriority.MAX,
+            categoryIdentifier: 'ALERT_CATEGORY',
+          },
+          trigger: null,
+        });
+      }, 2000); // Cada 2 segundos
     } catch (error) {
       console.log('Error reproduciendo alarma:', error);
-      Vibration.vibrate([1000, 500, 1000, 500, 1000], false);
+      // Vibración de respaldo
+      Vibration.vibrate([1000, 500], true);
     }
   };
 
   const stopAlarm = async (): Promise<void> => {
-    if (soundRef.current) {
-      await soundRef.current.stopAsync();
-      await soundRef.current.unloadAsync();
-      soundRef.current = null;
-    }
+    // Detener vibración
     Vibration.cancel();
+
+    // Detener intervalo de notificaciones
+    if (alarmIntervalRef.current) {
+      clearInterval(alarmIntervalRef.current);
+      alarmIntervalRef.current = null;
+    }
+
+    // Cancelar todas las notificaciones programadas
+    await Notifications.dismissAllNotificationsAsync();
   };
 
   const toggleMonitoring = async (): Promise<void> => {
@@ -329,13 +491,18 @@ export default function Index() {
         await Location.stopLocationUpdatesAsync(LOCATION_TASK_NAME);
       }
 
+      await AsyncStorage.removeItem(ALERT_SHOWN_KEY);
+      await AsyncStorage.setItem(IS_MONITORING_KEY, 'false');
       setIsMonitoring(false);
       setHasAlerted(false);
       stopAlarm();
-      showToast('error', 'Detenido', 'Monitoreo detenido');
+      showToast('error', '⏸️ Detenido', 'Monitoreo detenido');
     } else {
       setHasAlerted(false);
 
+      // Resetear flag de alerta
+      await AsyncStorage.removeItem(ALERT_SHOWN_KEY);
+      await AsyncStorage.setItem(IS_MONITORING_KEY, 'true');
       await AsyncStorage.setItem(DESTINATION_KEY, JSON.stringify(destination));
       await AsyncStorage.setItem(ALERT_RADIUS_KEY, alertRadius.toString());
 
@@ -356,15 +523,20 @@ export default function Index() {
           const dist = calculateDistance(coords.lat, coords.lng, destination.lat, destination.lng);
           setDistance(dist);
 
+          // Alertar cuando la distancia al destino es MENOR O IGUAL al radio seleccionado
+          // Ejemplo: Si radio es 300m y estás a 250m del destino → ALERTA ✅
+          // Ejemplo: Si radio es 300m y estás a 400m del destino → NO ALERTA ❌
           if (dist <= alertRadius && !hasAlerted) {
             setHasAlerted(true);
             playAlarm();
 
             Notifications.scheduleNotificationAsync({
               content: {
-                title: '🔔 ¡YA LLEGASTE!',
+                title: '🔔 ¡LLEGASTE A TU DESTINO!',
                 body: `Estás a ${Math.round(dist)}m de ${destination.name}`,
                 sound: true,
+                categoryIdentifier: 'ALERT_CATEGORY',
+                data: { action: 'stop_monitoring' },
               },
               trigger: null,
             });
@@ -377,27 +549,46 @@ export default function Index() {
         timeInterval: 10000,
         distanceInterval: 50,
         foregroundService: {
-          notificationTitle: 'Despiértame al Llegar',
-          notificationBody: `Monitoreando llegada a ${destination.name}`,
-          notificationColor: '#6366f1',
+          notificationTitle: 'GPS Amigo - Monitoreando',
+          notificationBody: `Te avisaremos al llegar a ${destination.name}`,
+          notificationColor: '#f59e0b',
         },
       });
 
       setIsMonitoring(true);
-      showToast('success', 'Alerta iniciada', 'Te avisaremos cuando estes cerca');
+      showToast('success', '✅ Monitoreo iniciado', 'Te avisaremos cuando llegues');
     }
   };
 
-  const dismissAlert = (): void => {
+  const dismissAlert = async (): Promise<void> => {
     setHasAlerted(false);
-    stopAlarm();
+    await stopAlarm();
+
+    // Si está monitoreando, también detener el monitoreo
+    if (isMonitoring) {
+      await toggleMonitoring();
+    }
+  };
+
+  // Resetear alerta cuando cambia el radio
+  const handleRadiusChange = async (newRadius: number) => {
+    setAlertRadius(newRadius);
+
+    // Si está monitoreando, resetear el flag de alerta para que pueda volver a alertar
+    if (isMonitoring) {
+      await AsyncStorage.removeItem(ALERT_SHOWN_KEY);
+      await AsyncStorage.setItem(ALERT_RADIUS_KEY, newRadius.toString());
+      setHasAlerted(false);
+      await stopAlarm();
+      showToast('info', '📏 Radio actualizado', `Nueva distancia: ${formatDistance(newRadius)}`);
+    }
   };
 
   const formatDistance = (meters: number): string => {
     if (meters < 1000) {
-      return `${Math.round(meters)} metros`;
+      return `${Math.round(meters)}m`;
     }
-    return `${(meters / 1000).toFixed(2)} kilometros`;
+    return `${(meters / 1000).toFixed(2)}km`;
   };
 
   return (
@@ -644,9 +835,14 @@ export default function Index() {
                 {destination.lat.toFixed(6)}, {destination.lng.toFixed(6)}
               </Text>
               {distance !== null && (
-                <Text className="text-2xl font-bold text-indigo-950">
-                  Estas a: {formatDistance(distance)}
-                </Text>
+                <View className="mt-3 rounded-xl bg-white/60 p-3">
+                  <Text className="text-center text-sm font-semibold text-indigo-700">
+                    📏 Distancia actual
+                  </Text>
+                  <Text className="text-center text-2xl font-bold text-indigo-950">
+                    {formatDistance(distance)}
+                  </Text>
+                </View>
               )}
             </View>
           ) : (
@@ -680,11 +876,18 @@ export default function Index() {
                 onLongPress={() => deleteSavedPlace(index)}>
                 <View className="flex-row items-center gap-3">
                   <Text className="text-3xl">{place.emoji}</Text>
-                  <View>
+                  <View className="flex-1">
                     <Text className="text-base font-semibold text-gray-800">{place.name}</Text>
                     <Text className="text-xs text-gray-500">
                       {place.lat.toFixed(4)}, {place.lng.toFixed(4)}
                     </Text>
+                    {placeDistances[index] !== undefined && (
+                      <View className="mt-1 rounded-lg bg-blue-50 px-2 py-1">
+                        <Text className="text-xs font-semibold text-blue-700">
+                          📍 {formatDistance(placeDistances[index])}
+                        </Text>
+                      </View>
+                    )}
                   </View>
                 </View>
                 <Text className="text-2xl text-gray-400">›</Text>
@@ -708,7 +911,7 @@ export default function Index() {
                 className={`items-center rounded-xl p-4 ${
                   alertRadius === radius ? 'bg-amber-600' : 'bg-gray-100'
                 }`}
-                onPress={() => setAlertRadius(radius)}>
+                onPress={() => handleRadiusChange(radius)}>
                 <Text
                   className={`text-base font-semibold ${
                     alertRadius === radius ? 'text-white' : 'text-gray-700'
