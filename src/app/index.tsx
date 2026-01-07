@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+
 import Entypo from '@expo/vector-icons/Entypo';
 import Feather from '@expo/vector-icons/Feather';
 
@@ -28,6 +29,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as TaskManager from 'expo-task-manager';
 import { showToast } from 'utils/toast';
 import Toast from 'react-native-toast-message';
+import { useRouter } from 'expo-router';
 
 // Tipos
 interface Coordinates {
@@ -47,60 +49,58 @@ type MapMode = 'destination' | 'save-place';
 
 // Configurar el handler de notificaciones
 Notifications.setNotificationHandler({
-  handleNotification: async () => ({
+  handleNotification: async (): Promise<Notifications.NotificationBehavior> => ({
     shouldShowAlert: true,
     shouldPlaySound: true,
     shouldSetBadge: false,
+    shouldShowBanner: true,
+    shouldShowList: true,
   }),
 });
-
 // Definir tarea de background
 const LOCATION_TASK_NAME = 'background-location-task';
 const DESTINATION_KEY = '@destination';
 const ALERT_RADIUS_KEY = '@alert_radius';
 
-TaskManager.defineTask(
-  LOCATION_TASK_NAME,
-  async ({ data, error }: TaskManager.TaskManagerTaskBody<Location.LocationTaskEventData>) => {
-    if (error) {
-      console.error(error);
-      return;
-    }
-    if (data) {
-      const { locations } = data;
-      const location = locations[0];
+TaskManager.defineTask(LOCATION_TASK_NAME, async ({ data, error }: any) => {
+  if (error) {
+    console.error(error);
+    return;
+  }
+  if (data) {
+    const { locations } = data;
+    const location = locations[0];
 
-      const destinationStr = await AsyncStorage.getItem(DESTINATION_KEY);
-      const alertRadiusStr = await AsyncStorage.getItem(ALERT_RADIUS_KEY);
+    const destinationStr = await AsyncStorage.getItem(DESTINATION_KEY);
+    const alertRadiusStr = await AsyncStorage.getItem(ALERT_RADIUS_KEY);
 
-      if (destinationStr && alertRadiusStr) {
-        const destination: Place = JSON.parse(destinationStr);
-        const alertRadius = parseFloat(alertRadiusStr);
+    if (destinationStr && alertRadiusStr) {
+      const destination: Place = JSON.parse(destinationStr);
+      const alertRadius = parseFloat(alertRadiusStr);
 
-        const distance = calculateDistance(
-          location.coords.latitude,
-          location.coords.longitude,
-          destination.lat,
-          destination.lng
-        );
+      const distance = calculateDistance(
+        location.coords.latitude,
+        location.coords.longitude,
+        destination.lat,
+        destination.lng
+      );
 
-        if (distance <= alertRadius) {
-          await Notifications.scheduleNotificationAsync({
-            content: {
-              title: '¡ATENCIÓN!',
-              body: `Estás a cerca de ${destination.name}`,
-              sound: true,
-              priority: Notifications.AndroidNotificationPriority.HIGH,
-            },
-            trigger: null,
-          });
+      if (distance <= alertRadius) {
+        await Notifications.scheduleNotificationAsync({
+          content: {
+            title: '¡ATENCIÓN!',
+            body: `Estás a cerca de ${destination.name}`,
+            sound: true,
+            priority: Notifications.AndroidNotificationPriority.HIGH,
+          },
+          trigger: null,
+        });
 
-          Vibration.vibrate([500, 200, 500, 200, 500]);
-        }
+        Vibration.vibrate([500, 200, 500, 200, 500]);
       }
     }
   }
-);
+});
 
 function calculateDistance(lat1: number, lon1: number, lat2: number, lon2: number): number {
   const R = 6371e3;
@@ -116,7 +116,7 @@ function calculateDistance(lat1: number, lon1: number, lat2: number, lon2: numbe
 
   return R * c;
 }
-export default function ScreenContent() {
+export default function Index() {
   const [destination, setDestination] = useState<Place | null>(null);
   const [currentLocation, setCurrentLocation] = useState<Coordinates | null>(null);
   const [distance, setDistance] = useState<number | null>(null);
@@ -133,7 +133,7 @@ export default function ScreenContent() {
   const mapRef = useRef<MapView>(null);
   const soundRef = useRef<Audio.Sound | null>(null);
   const locationSubscription = useRef<Location.LocationSubscription | null>(null);
-
+  const router = useRouter();
   useEffect(() => {
     requestPermissions();
     loadSavedPlaces();
@@ -542,9 +542,16 @@ export default function ScreenContent() {
       </Modal>
 
       <ScrollView className="flex-1">
-        <View className=" bg-amber-600 p-8 pt-16">
-          <Text className="mb-1 text-3xl font-bold text-white">🔔 GPS Amigo</Text>
-          <Text className="text-base text-white/80">Alerta de llegada</Text>
+        <View className=" bg-amber-600 py-8">
+          <View className="mb-1 flex flex-row items-center justify-between gap-2">
+            <Entypo className="pl-6" name="location" size={30} color="white" />
+            <Text className="text-3xl font-bold text-white"> GPS Amigo</Text>
+            <TouchableOpacity
+              className="flex flex-row items-center justify-end rounded-l-3xl bg-white p-2 shadow-sm"
+              onPress={() => router.push('/about')}>
+              <AntDesign name="info-circle" size={30} color="black" />
+            </TouchableOpacity>
+          </View>
         </View>
 
         {hasAlerted && (
@@ -631,7 +638,7 @@ export default function ScreenContent() {
             <Text className="mb-4 text-xl font-bold text-gray-800">Mi Destino</Text>
           </View>
           {destination ? (
-            <View className="mb-4 rounded-2xl bg-indigo-100 p-5">
+            <View className="mb-4 rounded-2xl bg-amber-200 p-5">
               <Text className="mb-1 text-xl font-bold text-indigo-950">{destination.name}</Text>
               <Text className="mb-2.5 text-xs text-indigo-700">
                 {destination.lat.toFixed(6)}, {destination.lng.toFixed(6)}
@@ -655,7 +662,7 @@ export default function ScreenContent() {
         <View className="m-4 rounded-3xl bg-white p-5 shadow-sm">
           <View className="mb-4 flex-row items-center justify-between">
             <View className="flex flex-row gap-2">
-              <AntDesign name="star" size={24} color="yellow" />
+              <Entypo name="star-outlined" size={24} color="black" className="text-yellow-500" />
               <Text className="text-xl font-bold text-gray-800">Mis lugares</Text>
             </View>
             <TouchableOpacity onPress={openMapForSavePlace}>
@@ -738,23 +745,6 @@ export default function ScreenContent() {
             <Text className="text-base font-semibold text-green-600">Alerta activada</Text>
           </View>
         )}
-
-        <View className="m-4 mb-10 rounded-3xl bg-white p-5 shadow-sm">
-          <Text className="mb-4 text-lg font-bold text-gray-800">💡 Cómo usar:</Text>
-          <Text className="mb-2 text-sm leading-5 text-gray-600">
-            1️⃣ Toca el mapa para seleccionar tu destino
-          </Text>
-          <Text className="mb-2 text-sm leading-5 text-gray-600">
-            2️⃣ Guarda tus lugares frecuentes para acceso rápido
-          </Text>
-          <Text className="mb-2 text-sm leading-5 text-gray-600">
-            3️⃣ Configura a qué distancia quieres la alerta
-          </Text>
-          <Text className="mb-2 text-sm leading-5 text-gray-600">4️⃣ Iniciada la alerta</Text>
-          <Text className="text-sm leading-5 text-gray-600">
-            📱 Usando mapas nativos del celular, funcionan aun sin conexión a internet😁
-          </Text>
-        </View>
       </ScrollView>
     </View>
   );
