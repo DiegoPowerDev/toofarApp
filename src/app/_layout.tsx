@@ -10,6 +10,7 @@ export default function Layout() {
       <Stack screenOptions={{ headerShown: false }}>
         <Stack.Screen name="index" options={{ animation: 'slide_from_left' }} />
         <Stack.Screen name="about" options={{ animation: 'slide_from_right' }} />
+        <Stack.Screen name="logs" />
       </Stack>
       <StatusBar style="auto" />
       <Toast config={toastConfig} position="top" />

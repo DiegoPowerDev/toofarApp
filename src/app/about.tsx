@@ -101,7 +101,7 @@ export default function About() {
               />
             </View>
             <Text className=" text-sm leading-6 text-gray-600">
-              Presiona <Text className="font-bold">"Comenzemos"</Text> y viaja tranquilo. La app
+              Presiona <Text className="font-bold">"Comencemos"</Text> y viaja tranquilo. La app
               seguirá funcionando incluso si la pantalla está bloqueada.
             </Text>
           </View>
@@ -251,6 +251,12 @@ export default function About() {
             trabajo
           </Text>
         </View>
+        <TouchableOpacity onPress={() => router.push('/logs')} className="mb-4">
+          <View className="flex-row gap-2">
+            <Entypo name="text-document" size={24} color="white" />
+            <Text className="text-base text-white">Logs</Text>
+          </View>
+        </TouchableOpacity>
       </ScrollView>
     </View>
   );
