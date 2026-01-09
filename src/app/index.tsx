@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-
+import darkMapStyle from '@/data/mapstyle.json';
 import Entypo from '@expo/vector-icons/Entypo';
 import Feather from '@expo/vector-icons/Feather';
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
@@ -16,16 +16,15 @@ import {
   Modal,
   TextInput,
 } from 'react-native';
-import MapView, { Marker, Circle } from 'react-native-maps';
+import MapView, { Marker, Circle, PROVIDER_GOOGLE } from 'react-native-maps';
 import * as Location from 'expo-location';
 import * as Notifications from 'expo-notifications';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as TaskManager from 'expo-task-manager';
-import { showToast } from 'utils/toast';
+import { showToast } from '@/utils/toast';
 import Toast from 'react-native-toast-message';
 import { useRouter } from 'expo-router';
 
-// Tipos
 interface Coordinates {
   lat: number;
   lng: number;
@@ -41,7 +40,6 @@ interface Place {
 
 type MapMode = 'destination' | 'save-place';
 
-// Configurar el handler de notificaciones
 Notifications.setNotificationHandler({
   handleNotification: async (): Promise<Notifications.NotificationBehavior> => ({
     shouldShowAlert: true,
@@ -95,7 +93,10 @@ TaskManager.defineTask(LOCATION_TASK_NAME, async ({ data, error }: any) => {
         destination.lng
       );
 
-      // Solo alertar UNA VEZ cuando entra al radio
+      console.log(
+        `[Background] Distancia: ${distance}m, Radio: ${alertRadius}m, Mostrado: ${alertShown}`
+      );
+
       if (distance <= alertRadius && !alertShown) {
         await AsyncStorage.setItem(ALERT_SHOWN_KEY, 'true');
 
@@ -155,6 +156,7 @@ export default function Index() {
   const router = useRouter();
 
   useEffect(() => {
+    console.log('🚀 App iniciando...');
     requestPermissions();
     loadSavedPlaces();
     getCurrentLocation();
@@ -174,10 +176,12 @@ export default function Index() {
     };
   }, []);
 
-  // Calcular distancias automáticamente
   useEffect(() => {
     if (currentLocation) {
-      // Calcular distancia al destino
+      console.log(
+        `📍 Ubicación actualizada: ${currentLocation.lat.toFixed(6)}, ${currentLocation.lng.toFixed(6)}`
+      );
+
       if (destination) {
         const dist = calculateDistance(
           currentLocation.lat,
@@ -186,14 +190,13 @@ export default function Index() {
           destination.lng
         );
         setDistance(dist);
+        console.log(`📏 Distancia al destino: ${dist.toFixed(2)}m`);
       }
 
-      // Calcular distancias a lugares guardados
       calculatePlaceDistances();
     }
   }, [currentLocation, destination, savedPlaces]);
 
-  // Actualizar ubicación cada 5 segundos
   useEffect(() => {
     const interval = setInterval(() => {
       getCurrentLocation();
@@ -204,11 +207,12 @@ export default function Index() {
 
   const setupNotificationListeners = () => {
     notificationListener.current = Notifications.addNotificationReceivedListener((notification) => {
-      console.log('Notificación recibida:', notification);
+      console.log('🔔 Notificación recibida:', notification);
     });
 
     responseListener.current = Notifications.addNotificationResponseReceivedListener(
       async (response) => {
+        console.log('👆 Usuario interactuó con notificación:', response.actionIdentifier);
         if (response.actionIdentifier === 'STOP_MONITORING') {
           await stopMonitoringFromNotification();
         }
@@ -218,6 +222,8 @@ export default function Index() {
 
   const stopMonitoringFromNotification = async () => {
     try {
+      console.log('⏸️ Deteniendo monitoreo desde notificación...');
+
       if (locationSubscription.current) {
         locationSubscription.current.remove();
         locationSubscription.current = null;
@@ -242,8 +248,10 @@ export default function Index() {
         },
         trigger: null,
       });
+
+      console.log('✅ Monitoreo detenido exitosamente');
     } catch (error) {
-      console.error('Error deteniendo desde notificación:', error);
+      console.error('❌ Error deteniendo desde notificación:', error);
     }
   };
 
@@ -264,24 +272,49 @@ export default function Index() {
   };
 
   const requestPermissions = async (): Promise<void> => {
-    const { status: foregroundStatus } = await Location.requestForegroundPermissionsAsync();
-    if (foregroundStatus !== 'granted') {
-      showToast('info', 'Permiso requerido', 'Necesitamos acceso a tu ubicación');
-      return;
-    }
+    try {
+      console.log('🔐 Solicitando permisos...');
 
-    const { status: backgroundStatus } = await Location.requestBackgroundPermissionsAsync();
-    if (backgroundStatus !== 'granted') {
-      showToast(
-        'info',
-        'Permiso de sistema',
-        'Para avisarte, necesitamos permiso de ubicación en segundo plano'
-      );
-    }
+      const { status: foregroundStatus } = await Location.requestForegroundPermissionsAsync();
+      console.log(`📍 Permiso foreground: ${foregroundStatus}`);
 
-    const { status: notificationStatus } = await Notifications.requestPermissionsAsync();
-    if (notificationStatus !== 'granted') {
-      showToast('info', 'Permiso requerido', 'Necesitamos enviar notificaciones para alertarte');
+      if (foregroundStatus !== 'granted') {
+        showToast(
+          'error',
+          '❌ Permiso denegado',
+          'GPS Amigo necesita acceso a tu ubicación para funcionar'
+        );
+        return;
+      }
+
+      const { status: backgroundStatus } = await Location.requestBackgroundPermissionsAsync();
+      console.log(`📍 Permiso background: ${backgroundStatus}`);
+
+      if (backgroundStatus !== 'granted') {
+        showToast(
+          'warning',
+          '⚠️ Permiso limitado',
+          'Para alertarte con la pantalla bloqueada, activa "Permitir siempre" en configuración'
+        );
+      } else {
+        showToast('success', '✅ Permisos concedidos', 'La app funcionará correctamente');
+      }
+
+      const { status: notificationStatus } = await Notifications.requestPermissionsAsync();
+      console.log(`🔔 Permiso notificaciones: ${notificationStatus}`);
+
+      if (notificationStatus !== 'granted') {
+        showToast(
+          'warning',
+          '⚠️ Sin notificaciones',
+          'Activa las notificaciones para recibir alertas'
+        );
+      }
+
+      console.log('✅ Proceso de permisos completado');
+    } catch (error) {
+      console.error('❌ Error solicitando permisos:', error);
+      showToast('error', 'Error', 'Hubo un problema al solicitar permisos');
     }
   };
 
@@ -289,10 +322,12 @@ export default function Index() {
     try {
       const saved = await AsyncStorage.getItem('@saved_places');
       if (saved) {
-        setSavedPlaces(JSON.parse(saved));
+        const places = JSON.parse(saved);
+        setSavedPlaces(places);
+        console.log(`💾 ${places.length} lugares guardados cargados`);
       }
     } catch (e) {
-      console.error('Error cargando lugares:', e);
+      console.error('❌ Error cargando lugares:', e);
     }
   };
 
@@ -300,34 +335,43 @@ export default function Index() {
     try {
       await AsyncStorage.setItem('@saved_places', JSON.stringify(places));
       setSavedPlaces(places);
+      console.log(`💾 ${places.length} lugares guardados`);
     } catch (e) {
-      console.error('Error guardando lugares:', e);
+      console.error('❌ Error guardando lugares:', e);
     }
   };
 
   const getCurrentLocation = async (): Promise<void> => {
     try {
+      console.log('📍 Obteniendo ubicación GPS...');
+
       const location = await Location.getCurrentPositionAsync({
         accuracy: Location.Accuracy.High,
       });
+
       setCurrentLocation({
         lat: location.coords.latitude,
         lng: location.coords.longitude,
         accuracy: location.coords.accuracy ?? undefined,
       });
+
+      console.log(
+        `✅ Ubicación obtenida: ${location.coords.latitude.toFixed(6)}, ${location.coords.longitude.toFixed(6)}`
+      );
     } catch (error) {
-      // Silenciar error para no molestar al usuario
-      console.log('Error obteniendo ubicación:', error);
+      console.log('⚠️ Error obteniendo ubicación:', error);
     }
   };
 
   const openMapForDestination = (): void => {
+    console.log('🗺️ Abriendo mapa para destino');
     setMapMode('destination');
     setSelectedMapLocation(destination || currentLocation);
     setShowMapModal(true);
   };
 
   const openMapForSavePlace = (): void => {
+    console.log('🗺️ Abriendo mapa para guardar lugar');
     setMapMode('save-place');
     setSelectedMapLocation(currentLocation);
     setShowMapModal(true);
@@ -345,11 +389,11 @@ export default function Index() {
       };
       setDestination(newDestination);
       setHasAlerted(false);
-
-      // Resetear flag de alerta cuando se cambia el destino
       await AsyncStorage.removeItem(ALERT_SHOWN_KEY);
-
       setShowMapModal(false);
+      console.log(
+        `🎯 Destino establecido: ${selectedMapLocation.lat.toFixed(6)}, ${selectedMapLocation.lng.toFixed(6)}`
+      );
       showToast('success', '🎯 Destino establecido', 'Toca "Comenzemos" para iniciar');
     } else if (mapMode === 'save-place') {
       setShowMapModal(false);
@@ -359,7 +403,11 @@ export default function Index() {
 
   const savePlaceWithName = (): void => {
     if (!newPlaceName.trim() || !selectedMapLocation) {
-      showToast('error', 'Ingresa un nombre para el lugar');
+      showToast(
+        'error',
+        'Ingresa un nombre para el lugar',
+        'Porfavor ingresa un nombre para el lugar'
+      );
       return;
     }
 
@@ -374,16 +422,15 @@ export default function Index() {
     savePlaces(updated);
     setShowNameModal(false);
     setNewPlaceName('');
+    console.log(`💾 Lugar guardado: ${newPlace.name}`);
     showToast('success', '💾 Guardado', `${newPlace.name} guardado exitosamente`);
   };
 
   const selectSavedPlace = async (place: Place): Promise<void> => {
     setDestination(place);
     setHasAlerted(false);
-
-    // Resetear flag de alerta cuando se selecciona un nuevo lugar
     await AsyncStorage.removeItem(ALERT_SHOWN_KEY);
-
+    console.log(`🚩 Destino seleccionado: ${place.name}`);
     showToast('success', '🚩 Destino seleccionado', place.name);
   };
 
@@ -396,9 +443,11 @@ export default function Index() {
       props: {
         onCancel: () => Toast.hide(),
         onConfirm: () => {
+          const placeName = savedPlaces[index].name;
           const updated = savedPlaces.filter((_, i) => i !== index);
           savePlaces(updated);
           Toast.hide();
+          console.log(`🗑️ Lugar eliminado: ${placeName}`);
 
           Toast.show({
             type: 'error',
@@ -418,16 +467,17 @@ export default function Index() {
         latitudeDelta: 0.01,
         longitudeDelta: 0.01,
       });
+      console.log('🎯 Mapa centrado en ubicación');
     }
   };
 
   const playAlarm = async (): Promise<void> => {
     try {
-      // Vibración continua (se repite indefinidamente)
-      const vibratePattern = [1000, 500]; // 1 segundo vibrar, 0.5 segundo pausa
-      Vibration.vibrate(vibratePattern, true); // true = repetir indefinidamente
+      console.log('🔊 Reproduciendo alarma...');
 
-      // Enviar notificación inicial
+      const vibratePattern = [1000, 500];
+      Vibration.vibrate(vibratePattern, true);
+
       await Notifications.scheduleNotificationAsync({
         content: {
           title: '🔔 ¡LLEGASTE A TU DESTINO!',
@@ -435,12 +485,11 @@ export default function Index() {
           sound: true,
           priority: Notifications.AndroidNotificationPriority.MAX,
           categoryIdentifier: 'ALERT_CATEGORY',
-          sticky: true, // Hace que la notificación sea persistente
+          sticky: true,
         },
         trigger: null,
       });
 
-      // Crear intervalo para notificaciones repetidas cada 2 segundos
       alarmIntervalRef.current = setInterval(async () => {
         await Notifications.scheduleNotificationAsync({
           content: {
@@ -452,25 +501,22 @@ export default function Index() {
           },
           trigger: null,
         });
-      }, 2000); // Cada 2 segundos
+      }, 2000);
     } catch (error) {
-      console.log('Error reproduciendo alarma:', error);
-      // Vibración de respaldo
+      console.log('❌ Error reproduciendo alarma:', error);
       Vibration.vibrate([1000, 500], true);
     }
   };
 
   const stopAlarm = async (): Promise<void> => {
-    // Detener vibración
+    console.log('🔇 Deteniendo alarma...');
     Vibration.cancel();
 
-    // Detener intervalo de notificaciones
     if (alarmIntervalRef.current) {
       clearInterval(alarmIntervalRef.current);
       alarmIntervalRef.current = null;
     }
 
-    // Cancelar todas las notificaciones programadas
     await Notifications.dismissAllNotificationsAsync();
   };
 
@@ -481,6 +527,8 @@ export default function Index() {
     }
 
     if (isMonitoring) {
+      console.log('⏸️ Deteniendo monitoreo...');
+
       if (locationSubscription.current) {
         locationSubscription.current.remove();
         locationSubscription.current = null;
@@ -497,14 +545,17 @@ export default function Index() {
       setHasAlerted(false);
       stopAlarm();
       showToast('error', '⏸️ Detenido', 'Monitoreo detenido');
+      console.log('✅ Monitoreo detenido');
     } else {
+      console.log('▶️ Iniciando monitoreo...');
       setHasAlerted(false);
 
-      // Resetear flag de alerta
       await AsyncStorage.removeItem(ALERT_SHOWN_KEY);
       await AsyncStorage.setItem(IS_MONITORING_KEY, 'true');
       await AsyncStorage.setItem(DESTINATION_KEY, JSON.stringify(destination));
       await AsyncStorage.setItem(ALERT_RADIUS_KEY, alertRadius.toString());
+
+      console.log(`📊 Configuración: Destino=${destination.name}, Radio=${alertRadius}m`);
 
       locationSubscription.current = await Location.watchPositionAsync(
         {
@@ -523,10 +574,10 @@ export default function Index() {
           const dist = calculateDistance(coords.lat, coords.lng, destination.lat, destination.lng);
           setDistance(dist);
 
-          // Alertar cuando la distancia al destino es MENOR O IGUAL al radio seleccionado
-          // Ejemplo: Si radio es 300m y estás a 250m del destino → ALERTA ✅
-          // Ejemplo: Si radio es 300m y estás a 400m del destino → NO ALERTA ❌
+          console.log(`📍 Posición: ${dist.toFixed(2)}m del destino`);
+
           if (dist <= alertRadius && !hasAlerted) {
+            console.log('🔔 ¡ALERTA ACTIVADA! Dentro del radio');
             setHasAlerted(true);
             playAlarm();
 
@@ -557,24 +608,24 @@ export default function Index() {
 
       setIsMonitoring(true);
       showToast('success', '✅ Monitoreo iniciado', 'Te avisaremos cuando llegues');
+      console.log('✅ Monitoreo iniciado exitosamente');
     }
   };
 
   const dismissAlert = async (): Promise<void> => {
+    console.log('👆 Descartando alerta...');
     setHasAlerted(false);
     await stopAlarm();
 
-    // Si está monitoreando, también detener el monitoreo
     if (isMonitoring) {
       await toggleMonitoring();
     }
   };
 
-  // Resetear alerta cuando cambia el radio
   const handleRadiusChange = async (newRadius: number) => {
+    console.log(`📏 Cambiando radio de ${alertRadius}m a ${newRadius}m`);
     setAlertRadius(newRadius);
 
-    // Si está monitoreando, resetear el flag de alerta para que pueda volver a alertar
     if (isMonitoring) {
       await AsyncStorage.removeItem(ALERT_SHOWN_KEY);
       await AsyncStorage.setItem(ALERT_RADIUS_KEY, newRadius.toString());
@@ -595,7 +646,6 @@ export default function Index() {
     <View className="flex-1 bg-black/80">
       <StatusBar barStyle="light-content" />
 
-      {/* Modal del Mapa */}
       <Modal visible={showMapModal} animationType="slide">
         <View className="flex-1 bg-white">
           <View className="flex-row items-center justify-between bg-amber-600 px-4 pb-4 pt-12">
@@ -617,6 +667,8 @@ export default function Index() {
           {currentLocation && (
             <View className="flex-1">
               <MapView
+                provider={PROVIDER_GOOGLE}
+                customMapStyle={darkMapStyle}
                 ref={mapRef}
                 style={{ flex: 1 }}
                 initialRegion={{
@@ -699,7 +751,6 @@ export default function Index() {
         </View>
       </Modal>
 
-      {/* Modal para nombre del lugar */}
       <Modal visible={showNameModal} animationType="fade" transparent={true}>
         <View className="flex-1 items-center justify-center bg-black/50">
           <View className="w-4/5 max-w-md rounded-3xl bg-white p-6">
@@ -733,7 +784,7 @@ export default function Index() {
       </Modal>
 
       <ScrollView className="flex-1">
-        <View className=" bg-amber-600 py-8">
+        <View className="bg-amber-600 py-8">
           <View className="mb-1 flex flex-row items-center justify-between gap-2">
             <Entypo className="pl-6" name="location" size={30} color="white" />
             <Text className="text-3xl font-bold text-white"> GPS Amigo</Text>
@@ -766,22 +817,26 @@ export default function Index() {
           {currentLocation && (
             <View className="mb-4 overflow-hidden rounded-2xl">
               <MapView
+                provider={PROVIDER_GOOGLE}
                 className="h-48 w-full"
                 region={{
-                  latitude: currentLocation.lat,
-                  longitude: currentLocation.lng,
+                  latitude: currentLocation?.lat ?? -12.0464, // ← Valor por defecto
+                  longitude: currentLocation?.lng ?? -77.0428, // ← Valor por defecto
                   latitudeDelta: 0.02,
                   longitudeDelta: 0.02,
                 }}
                 scrollEnabled={false}
                 zoomEnabled={false}>
-                <Marker
-                  coordinate={{
-                    latitude: currentLocation.lat,
-                    longitude: currentLocation.lng,
-                  }}
-                  pinColor="blue"
-                />
+                {currentLocation && (
+                  <Marker
+                    coordinate={{
+                      latitude: currentLocation.lat,
+                      longitude: currentLocation.lng,
+                    }}
+                    pinColor="blue"
+                  />
+                )}
+
                 {destination && (
                   <>
                     <Marker
@@ -803,6 +858,7 @@ export default function Index() {
                     />
                   </>
                 )}
+
                 {savedPlaces.map((place, index) => (
                   <Marker
                     key={index}
@@ -814,6 +870,7 @@ export default function Index() {
                   />
                 ))}
               </MapView>
+
               <TouchableOpacity
                 className="items-center bg-amber-600 p-3"
                 onPress={openMapForDestination}>
@@ -937,7 +994,7 @@ export default function Index() {
           ) : (
             <View className="flex w-full flex-row items-center justify-center gap-2">
               <FontAwesome5 name="running" size={24} color="white" />
-              <Text className="text-lg font-bold text-white">Comenzemos</Text>
+              <Text className="text-lg font-bold text-white">Comencemos</Text>
             </View>
           )}
         </TouchableOpacity>

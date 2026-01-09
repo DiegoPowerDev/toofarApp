@@ -1,18 +1,11 @@
 import Toast from 'react-native-toast-message';
 
-interface ToastOptions {
-  type: 'success' | 'error' | 'info';
-  title: string;
-  message: string;
-  duration?: number;
-}
-
-export const showToast = (options: ToastOptions): void => {
+export const showToast = (type: string, title: string, message: string, duration = 3000) => {
   Toast.show({
-    type: options.type,
-    text1: options.title,
-    text2: options.message,
-    visibilityTime: options.duration,
+    type,
+    text1: title,
+    text2: message,
+    visibilityTime: duration,
     topOffset: 60,
   });
 };
