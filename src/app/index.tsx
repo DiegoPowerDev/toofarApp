@@ -346,7 +346,7 @@ export default function Index() {
       console.log('📍 Obteniendo ubicación GPS...');
 
       const location = await Location.getCurrentPositionAsync({
-        accuracy: Location.Accuracy.High,
+        accuracy: Location.Accuracy.Balanced,
       });
 
       setCurrentLocation({
@@ -557,52 +557,61 @@ export default function Index() {
 
       console.log(`📊 Configuración: Destino=${destination.name}, Radio=${alertRadius}m`);
 
-      locationSubscription.current = await Location.watchPositionAsync(
-        {
-          accuracy: Location.Accuracy.High,
-          timeInterval: 5000,
-          distanceInterval: 10,
-        },
-        (location) => {
-          const coords: Coordinates = {
-            lat: location.coords.latitude,
-            lng: location.coords.longitude,
-            accuracy: location.coords.accuracy ?? undefined,
-          };
-          setCurrentLocation(coords);
+      try {
+        locationSubscription.current = await Location.watchPositionAsync(
+          {
+            accuracy: Location.Accuracy.High,
+            timeInterval: 5000,
+            distanceInterval: 10,
+          },
+          (location) => {
+            const coords: Coordinates = {
+              lat: location.coords.latitude,
+              lng: location.coords.longitude,
+              // accuracy: location.coords.accuracy ?? undefined,
+            };
+            setCurrentLocation(coords);
 
-          const dist = calculateDistance(coords.lat, coords.lng, destination.lat, destination.lng);
-          setDistance(dist);
+            const dist = calculateDistance(
+              coords.lat,
+              coords.lng,
+              destination.lat,
+              destination.lng
+            );
+            setDistance(dist);
 
-          console.log(`📍 Posición: ${dist.toFixed(2)}m del destino`);
+            console.log(`📍 Posición: ${dist.toFixed(2)}m del destino`);
 
-          if (dist <= alertRadius && !hasAlerted) {
-            console.log('🔔 ¡ALERTA ACTIVADA! Dentro del radio');
-            setHasAlerted(true);
-            playAlarm();
+            if (dist <= alertRadius && !hasAlerted) {
+              console.log('🔔 ¡ALERTA ACTIVADA! Dentro del radio');
+              setHasAlerted(true);
+              playAlarm();
 
-            Notifications.scheduleNotificationAsync({
-              content: {
-                title: '🔔 ¡LLEGASTE A TU DESTINO!',
-                body: `Estás a ${Math.round(dist)}m de ${destination.name}`,
-                sound: true,
-                categoryIdentifier: 'ALERT_CATEGORY',
-                data: { action: 'stop_monitoring' },
-              },
-              trigger: null,
-            });
+              Notifications.scheduleNotificationAsync({
+                content: {
+                  title: '🔔 ¡LLEGASTE A TU DESTINO!',
+                  body: `Estás a ${Math.round(dist)}m de ${destination.name}`,
+                  sound: true,
+                  categoryIdentifier: 'ALERT_CATEGORY',
+                  data: { action: 'stop_monitoring' },
+                },
+                trigger: null,
+              });
+            }
           }
-        }
-      );
+        );
+      } catch (error) {
+        console.log('Error en watchPosition, continuando con Background...');
+      }
 
       await Location.startLocationUpdatesAsync(LOCATION_TASK_NAME, {
         accuracy: Location.Accuracy.High,
         timeInterval: 10000,
         distanceInterval: 50,
         foregroundService: {
-          notificationTitle: 'GPS Amigo - Monitoreando',
-          notificationBody: `Te avisaremos al llegar a ${destination.name}`,
-          notificationColor: '#f59e0b',
+          notificationTitle: 'GPS Amigo activo',
+          notificationBody: 'Monitoreando tu llegada...',
+          notificationColor: '#d97706',
         },
       });
 
