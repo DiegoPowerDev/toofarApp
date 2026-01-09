@@ -664,7 +664,7 @@ export default function Index() {
             </TouchableOpacity>
           </View>
 
-          {currentLocation && (
+          {currentLocation?.lat && currentLocation?.lng ? (
             <View className="flex-1">
               <MapView
                 provider={PROVIDER_GOOGLE}
@@ -731,6 +731,10 @@ export default function Index() {
                   />
                 ))}
               </MapView>
+            </View>
+          ) : (
+            <View className="h-48 w-full items-center justify-center bg-gray-200">
+              <Text>Cargando mapa...</Text>
             </View>
           )}
 
