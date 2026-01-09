@@ -65,8 +65,9 @@ export default function About() {
             <Text className="mb-2 text-base font-bold text-gray-800">Selecciona tu destion</Text>
             <View className="flex-row justify-center">
               <Image
-                source={require('../../assets/step1.png')}
-                style={{ width: 120, height: 120 }}
+                source={require('../../assets/step1.webp')}
+                resizeMode="contain"
+                className="flex h-64 w-full object-contain"
               />
             </View>
 
@@ -82,8 +83,9 @@ export default function About() {
             </Text>
             <View className="flex-row justify-center">
               <Image
-                source={require('../../assets/step1.png')}
-                style={{ width: 120, height: 120 }}
+                resizeMode="contain"
+                className="flex h-64 w-full object-contain"
+                source={require('../../assets/step2.webp')}
               />
             </View>
             <Text className=" text-sm leading-6 text-gray-600">
@@ -96,8 +98,9 @@ export default function About() {
             <Text className="mb-2 text-base font-bold text-gray-800">Inicia el tu viaje</Text>
             <View className="flex-row justify-center">
               <Image
-                source={require('../../assets/step1.png')}
-                style={{ width: 120, height: 120 }}
+                resizeMode="contain"
+                source={require('../../assets/step3.webp')}
+                className="flex h-64 w-full object-contain"
               />
             </View>
             <Text className=" text-sm leading-6 text-gray-600">
@@ -110,8 +113,9 @@ export default function About() {
             <Text className="mb-2 text-base font-bold text-gray-800">Recibe la alerta</Text>
             <View className="flex-row justify-center">
               <Image
-                source={require('../../assets/step1.png')}
-                style={{ width: 120, height: 120 }}
+                source={require('../../assets/step4.webp')}
+                resizeMode="contain"
+                className="flex h-40 w-full object-contain"
               />
             </View>
             <Text className="text-sm leading-6 text-gray-600">
