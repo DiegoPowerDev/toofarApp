@@ -1,9 +1,7 @@
-// src/store/useAppStore.ts
 import { create } from 'zustand';
 import * as Location from 'expo-location';
 import * as Notifications from 'expo-notifications';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { Vibration } from 'react-native';
 import { showToast } from '@/utils/toast';
 
 interface Coordinates {
@@ -30,6 +28,7 @@ interface AppState {
   hasAlerted: boolean;
   placeDistances: { [key: number]: number };
   initialized: boolean;
+  isInitializing: boolean; // ← NUEVO: para evitar llamadas múltiples
 
   // Setters
   setCurrentLocation: (location: Coordinates | null) => void;
@@ -63,6 +62,7 @@ export const useGPSStore = create<AppState>((set, get) => ({
   hasAlerted: false,
   placeDistances: {},
   initialized: false,
+  isInitializing: false,
 
   // Setters
   setCurrentLocation: (location) => {
@@ -78,7 +78,6 @@ export const useGPSStore = create<AppState>((set, get) => ({
         state.destination.lng
       );
       set({ distance: dist });
-      console.log(`📏 Distancia al destino: ${dist.toFixed(2)}m`);
     }
 
     // Calcular distancias a lugares guardados
@@ -96,17 +95,32 @@ export const useGPSStore = create<AppState>((set, get) => ({
   // Inicializar (llamar solo UNA VEZ)
   initialize: async () => {
     const state = get();
-    if (state.initialized) {
-      console.log('⏭️ Ya inicializado');
+
+    // ✅ Protección contra inicialización múltiple
+    if (state.initialized || state.isInitializing) {
+      console.log('⏭️ Ya inicializado o inicializando...');
       return;
     }
 
     console.log('🚀 Inicializando store...');
-    await state.requestPermissions();
-    await state.loadSavedPlaces();
-    await state.getCurrentLocation();
-    set({ initialized: true });
-    console.log('✅ Store inicializado');
+    set({ isInitializing: true });
+
+    try {
+      // Ejecutar en paralelo para ser más rápido
+      await Promise.all([state.requestPermissions(), state.loadSavedPlaces()]);
+
+      // Obtener ubicación al final (puede demorar más)
+      await state.getCurrentLocation();
+
+      set({ initialized: true });
+      console.log('✅ Store inicializado');
+    } catch (error) {
+      console.error('❌ Error inicializando:', error);
+      // Marcar como inicializado de todas formas para no bloquear la UI
+      set({ initialized: true });
+    } finally {
+      set({ isInitializing: false });
+    }
   },
 
   // Solicitar permisos
@@ -116,7 +130,6 @@ export const useGPSStore = create<AppState>((set, get) => ({
 
       // Verificar permisos actuales
       const currentPerms = await Location.getForegroundPermissionsAsync();
-      console.log(`📍 Permisos actuales: ${currentPerms.status}`);
 
       if (currentPerms.status === 'granted') {
         console.log('✅ Permisos ya concedidos - omitiendo toast');
@@ -132,7 +145,6 @@ export const useGPSStore = create<AppState>((set, get) => ({
       // Solo solicitar si NO tenemos permisos
       console.log('🔐 Solicitando permisos por primera vez...');
       const { status: foregroundStatus } = await Location.requestForegroundPermissionsAsync();
-      console.log(`📍 Permiso foreground: ${foregroundStatus}`);
 
       if (foregroundStatus !== 'granted') {
         showToast('error', '❌ Permiso denegado', 'GPS Amigo necesita acceso a tu ubicación');
@@ -140,7 +152,6 @@ export const useGPSStore = create<AppState>((set, get) => ({
       }
 
       const { status: backgroundStatus } = await Location.requestBackgroundPermissionsAsync();
-      console.log(`📍 Permiso background: ${backgroundStatus}`);
 
       if (backgroundStatus !== 'granted') {
         showToast('warning', '⚠️ Permiso limitado', 'Activa "Permitir siempre" en configuración');
@@ -149,7 +160,6 @@ export const useGPSStore = create<AppState>((set, get) => ({
       }
 
       const { status: notificationStatus } = await Notifications.requestPermissionsAsync();
-      console.log(`🔔 Permiso notificaciones: ${notificationStatus}`);
 
       if (notificationStatus !== 'granted') {
         showToast('warning', '⚠️ Sin notificaciones', 'Activa las notificaciones');
@@ -190,8 +200,6 @@ export const useGPSStore = create<AppState>((set, get) => ({
   // Obtener ubicación actual
   getCurrentLocation: async () => {
     try {
-      console.log('📍 Obteniendo ubicación GPS...');
-
       const location = await Location.getCurrentPositionAsync({
         accuracy: Location.Accuracy.Balanced,
       });
@@ -205,9 +213,7 @@ export const useGPSStore = create<AppState>((set, get) => ({
       // Esto triggereará automáticamente el cálculo de distancias
       get().setCurrentLocation(newLocation);
 
-      console.log(
-        `✅ Ubicación obtenida: ${newLocation.lat.toFixed(6)}, ${newLocation.lng.toFixed(6)}`
-      );
+      console.log(`📍 Ubicación: ${newLocation.lat.toFixed(6)}, ${newLocation.lng.toFixed(6)}`);
     } catch (error) {
       console.log('⚠️ Error obteniendo ubicación:', error);
     }
@@ -251,7 +257,7 @@ export const useGPSStore = create<AppState>((set, get) => ({
   selectSavedPlace: async (place) => {
     set({ destination: place, hasAlerted: false });
     await AsyncStorage.removeItem('@alert_shown');
-    console.log(`🚩 Destino seleccionado: ${place.name}`);
+    console.log(`🚩 Destino: ${place.name}`);
     showToast('success', '🚩 Destino seleccionado', place.name);
   },
 }));

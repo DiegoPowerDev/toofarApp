@@ -28,18 +28,21 @@ export default function About() {
     <View className="flex-1 bg-black/80">
       <ScrollView className="flex-1">
         {/* Header */}
-        <View className=" flex bg-amber-600 p-8  ">
-          <TouchableOpacity onPress={() => router.push('/')} className="mb-4">
-            <View className="flex-row gap-2">
-              <Ionicons name="arrow-back" size={24} color="white" />
-              <Text className="text-base text-white">Volver</Text>
+        <View className=" h-32 flex-col justify-center bg-amber-600 py-2  ">
+          <View className="mb-1 flex w-full flex-row items-center  gap-2">
+            <TouchableOpacity
+              className="flex flex-row items-center justify-end rounded-r-3xl bg-white p-2 shadow-sm"
+              onPress={() => router.push('/')}>
+              <Ionicons name="arrow-back" size={30} color="black" />
+            </TouchableOpacity>
+            <View className=" flex-col items-center justify-center">
+              <View className="flex-row items-center gap-2">
+                <Text className="text-3xl font-bold text-white">Acerca de</Text>
+                <AntDesign name="info-circle" size={24} color="white" />
+              </View>
+              <Text className="text-center text-base text-white/80">GPS Amigo v0.1.0</Text>
             </View>
-          </TouchableOpacity>
-          <View className="flex-row items-center gap-2">
-            <AntDesign name="info-circle" size={24} color="white" />
-            <Text className="mb-1 text-3xl font-bold text-white">Acerca de</Text>
           </View>
-          <Text className="text-base text-white/80">GPS Amigo v0.1.0</Text>
         </View>
 
         {/* Descripción */}
@@ -255,12 +258,6 @@ export default function About() {
             trabajo
           </Text>
         </View>
-        <TouchableOpacity onPress={() => router.push('/logs')} className="mb-4">
-          <View className="flex-row gap-2">
-            <Entypo name="text-document" size={24} color="white" />
-            <Text className="text-base text-white">Logs</Text>
-          </View>
-        </TouchableOpacity>
       </ScrollView>
     </View>
   );
