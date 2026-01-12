@@ -28,7 +28,8 @@ interface AppState {
   hasAlerted: boolean;
   placeDistances: { [key: number]: number };
   initialized: boolean;
-  isInitializing: boolean; // ← NUEVO: para evitar llamadas múltiples
+  isInitializing: boolean;
+  permissionError: boolean; // ← NUEVO
 
   // Setters
   setCurrentLocation: (location: Coordinates | null) => void;
@@ -42,7 +43,7 @@ interface AppState {
 
   // Funciones
   initialize: () => Promise<void>;
-  requestPermissions: () => Promise<void>;
+  requestPermissions: () => Promise<boolean>;
   loadSavedPlaces: () => Promise<void>;
   savePlaces: (places: Place[]) => Promise<void>;
   getCurrentLocation: () => Promise<void>;
@@ -63,6 +64,7 @@ export const useGPSStore = create<AppState>((set, get) => ({
   placeDistances: {},
   initialized: false,
   isInitializing: false,
+  permissionError: false, // ← NUEVO
 
   // Setters
   setCurrentLocation: (location) => {
@@ -103,72 +105,93 @@ export const useGPSStore = create<AppState>((set, get) => ({
     }
 
     console.log('🚀 Inicializando store...');
-    set({ isInitializing: true });
+    set({ isInitializing: true, permissionError: false });
 
     try {
-      // Ejecutar en paralelo para ser más rápido
-      await Promise.all([state.requestPermissions(), state.loadSavedPlaces()]);
+      // 1. Solicitar permisos primero (crítico)
+      await state.requestPermissions();
 
-      // Obtener ubicación al final (puede demorar más)
-      await state.getCurrentLocation();
+      // 2. Cargar lugares guardados (en paralelo con ubicación)
+      await Promise.all([state.loadSavedPlaces(), state.getCurrentLocation()]);
 
-      set({ initialized: true });
+      set({ initialized: true, permissionError: false });
       console.log('✅ Store inicializado');
     } catch (error) {
       console.error('❌ Error inicializando:', error);
-      // Marcar como inicializado de todas formas para no bloquear la UI
-      set({ initialized: true });
+      set({ initialized: false, permissionError: true });
+      showToast('error', '❌ Error de permisos', 'No se pudieron obtener los permisos necesarios');
     } finally {
       set({ isInitializing: false });
     }
   },
 
-  // Solicitar permisos
+  // Solicitar permisos (MEJORADO - secuencial)
   requestPermissions: async () => {
     try {
       console.log('🔐 Verificando permisos...');
 
-      // Verificar permisos actuales
-      const currentPerms = await Location.getForegroundPermissionsAsync();
+      // 1. Verificar permisos de ubicación en primer plano
+      let foregroundPerms = await Location.getForegroundPermissionsAsync();
 
-      if (currentPerms.status === 'granted') {
-        console.log('✅ Permisos ya concedidos - omitiendo toast');
+      if (foregroundPerms.status !== 'granted') {
+        console.log('🔐 Solicitando permiso de ubicación...');
+        foregroundPerms = await Location.requestForegroundPermissionsAsync();
 
-        // Verificar background silenciosamente
-        const bgPerms = await Location.getBackgroundPermissionsAsync();
-        if (bgPerms.status !== 'granted') {
-          await Location.requestBackgroundPermissionsAsync();
+        if (foregroundPerms.status !== 'granted') {
+          throw new Error('Permiso de ubicación denegado');
         }
-        return;
-      }
-
-      // Solo solicitar si NO tenemos permisos
-      console.log('🔐 Solicitando permisos por primera vez...');
-      const { status: foregroundStatus } = await Location.requestForegroundPermissionsAsync();
-
-      if (foregroundStatus !== 'granted') {
-        showToast('error', '❌ Permiso denegado', 'GPS Amigo necesita acceso a tu ubicación');
-        return;
-      }
-
-      const { status: backgroundStatus } = await Location.requestBackgroundPermissionsAsync();
-
-      if (backgroundStatus !== 'granted') {
-        showToast('warning', '⚠️ Permiso limitado', 'Activa "Permitir siempre" en configuración');
+        console.log('✅ Permiso de ubicación concedido');
       } else {
-        showToast('success', '✅ Permisos concedidos', 'Todo listo');
+        console.log('✅ Permiso de ubicación ya concedido');
       }
 
-      const { status: notificationStatus } = await Notifications.requestPermissionsAsync();
+      // 2. Verificar permisos de ubicación en segundo plano
+      let backgroundPerms = await Location.getBackgroundPermissionsAsync();
 
-      if (notificationStatus !== 'granted') {
-        showToast('warning', '⚠️ Sin notificaciones', 'Activa las notificaciones');
+      if (backgroundPerms.status !== 'granted') {
+        console.log('🔐 Solicitando permiso de ubicación en segundo plano...');
+        // Pequeña pausa para que el usuario procese el primer permiso
+        await new Promise((resolve) => setTimeout(resolve, 500));
+
+        backgroundPerms = await Location.requestBackgroundPermissionsAsync();
+
+        if (backgroundPerms.status !== 'granted') {
+          showToast('warning', '⚠️ Permiso limitado', 'Activa "Permitir siempre" en configuración');
+        } else {
+          console.log('✅ Permiso de segundo plano concedido');
+        }
+      } else {
+        console.log('✅ Permiso de segundo plano ya concedido');
+      }
+
+      // 3. Verificar permisos de notificaciones
+      let notificationPerms = await Notifications.getPermissionsAsync();
+
+      if (!notificationPerms.granted) {
+        console.log('🔐 Solicitando permiso de notificaciones...');
+        // Pequeña pausa
+        await new Promise((resolve) => setTimeout(resolve, 500));
+
+        notificationPerms = await Notifications.requestPermissionsAsync();
+
+        if (!notificationPerms.granted) {
+          showToast(
+            'warning',
+            '⚠️ Sin notificaciones',
+            'Activa las notificaciones en configuración'
+          );
+        } else {
+          console.log('✅ Permiso de notificaciones concedido');
+        }
+      } else {
+        console.log('✅ Permiso de notificaciones ya concedido');
       }
 
       console.log('✅ Proceso de permisos completado');
+      return true;
     } catch (error) {
       console.error('❌ Error solicitando permisos:', error);
-      showToast('error', 'Error', 'Problema al solicitar permisos');
+      throw error;
     }
   },
 

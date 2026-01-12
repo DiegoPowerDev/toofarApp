@@ -16,6 +16,7 @@ import {
   Modal,
   TextInput,
   Platform,
+  Linking,
 } from 'react-native';
 import MapView, { Marker, Circle, PROVIDER_GOOGLE } from 'react-native-maps';
 import * as Location from 'expo-location';
@@ -135,12 +136,14 @@ export default function Index() {
     hasAlerted,
     placeDistances,
     initialized,
+    permissionError, // ← NUEVO
     setIsMonitoring,
     setAlertRadius,
     setHasAlerted,
-    setDistance, // ← AGREGAR ESTO
+    setDistance,
     savePlaces,
     selectSavedPlace,
+    initialize, // ← NUEVO
   } = useGPSStore();
 
   // Estados locales (UI)
@@ -181,10 +184,8 @@ export default function Index() {
         emoji: '🎯',
       };
 
-      // Usar la función del store para establecer destino
       await selectSavedPlace(newDestination);
 
-      // NUEVO: Calcular distancia inicial inmediatamente
       if (currentLocation) {
         const dist = calculateDistance(
           currentLocation.lat,
@@ -272,14 +273,11 @@ export default function Index() {
     try {
       console.log('🔊 Reproduciendo alarma...');
 
-      // Primero, descartar cualquier notificación anterior
       await Notifications.dismissAllNotificationsAsync();
 
-      // Vibración continua
       const vibratePattern = [1000, 500];
       Vibration.vibrate(vibratePattern, true);
 
-      // UNA SOLA notificación persistente
       await Notifications.scheduleNotificationAsync({
         content: {
           title: '🔔 ¡LLEGASTE A TU DESTINO!',
@@ -427,7 +425,13 @@ export default function Index() {
     }
     return `${(meters / 1000).toFixed(2)}km`;
   };
-
+  const openAppSettings = () => {
+    if (Platform.OS === 'ios') {
+      Linking.openURL('app-settings:');
+    } else {
+      Linking.openSettings();
+    }
+  };
   return (
     <View className="flex-1 bg-black/80">
       <StatusBar barStyle="light-content" />
@@ -577,19 +581,65 @@ export default function Index() {
 
       {/* Pantalla de carga */}
       {!initialized ? (
-        <View className="flex-1 items-center justify-center bg-amber-600">
+        <View className="flex-1 items-center justify-center bg-amber-600 px-6">
           <View className="items-center">
             <Entypo name="location" size={80} color="white" className="mb-5" />
             <Text className="mb-2 text-4xl font-bold text-white">GPS Amigo</Text>
-            <Text className="mb-8 text-center text-lg text-white/80">
-              Cargando datos guardados, GPS y permisos...
-            </Text>
 
-            <View className="flex-row gap-2">
-              <View className="h-3 w-3 animate-pulse rounded-full bg-white" />
-              <View className="h-3 w-3 animate-pulse rounded-full bg-white" />
-              <View className="h-3 w-3 animate-pulse rounded-full bg-white" />
-            </View>
+            {permissionError ? (
+              // Pantalla de error de permisos
+              <>
+                <Text className="mb-4 text-center text-lg text-white/90">
+                  ⚠️ No se pudieron obtener los permisos necesarios
+                </Text>
+                <Text className="mb-8 text-center text-sm text-white/70">
+                  GPS Amigo necesita acceso a tu ubicación y notificaciones para funcionar
+                  correctamente
+                </Text>
+
+                <View className="gap-3">
+                  <TouchableOpacity
+                    onPress={() => {
+                      console.log('🔄 Reintentando inicialización...');
+                      initialize();
+                    }}
+                    className="rounded-xl bg-white px-8 py-4 shadow-lg active:scale-95">
+                    <View className="flex-row items-center justify-center gap-2">
+                      <MaterialIcons name="refresh" size={24} color="#d97706" />
+                      <Text className="text-lg font-bold text-amber-600">Reintentar</Text>
+                    </View>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    onPress={openAppSettings}
+                    className="rounded-xl border-2 border-white/30 bg-white/10 px-8 py-4 active:scale-95">
+                    <View className="flex-row items-center justify-center gap-2">
+                      <MaterialIcons name="settings" size={22} color="white" />
+                      <Text className="text-base font-semibold text-white">
+                        Abrir Configuración
+                      </Text>
+                    </View>
+                  </TouchableOpacity>
+
+                  <Text className="mt-2 text-center text-xs text-white/60">
+                    Si rechazaste los permisos, ábrelos manualmente en Configuración
+                  </Text>
+                </View>
+              </>
+            ) : (
+              // Pantalla de carga normal
+              <>
+                <Text className="mb-8 text-center text-lg text-white/80">
+                  Cargando datos guardados, GPS y permisos...
+                </Text>
+
+                <View className="flex-row gap-2">
+                  <View className="h-3 w-3 animate-pulse rounded-full bg-white" />
+                  <View className="h-3 w-3 animate-pulse rounded-full bg-white" />
+                  <View className="h-3 w-3 animate-pulse rounded-full bg-white" />
+                </View>
+              </>
+            )}
           </View>
         </View>
       ) : (
