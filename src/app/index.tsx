@@ -96,8 +96,13 @@ TaskManager.defineTask(LOCATION_TASK_NAME, async ({ data, error }: any) => {
       );
 
       if (distance <= alertRadius && !alertShown) {
+        // Marcar como mostrado ANTES de enviar notificación
         await AsyncStorage.setItem(ALERT_SHOWN_KEY, 'true');
 
+        // Descartar notificaciones anteriores
+        await Notifications.dismissAllNotificationsAsync();
+
+        // UNA SOLA notificación
         await Notifications.scheduleNotificationAsync({
           content: {
             title: '🔔 ¡LLEGASTE A TU DESTINO!',
@@ -111,7 +116,8 @@ TaskManager.defineTask(LOCATION_TASK_NAME, async ({ data, error }: any) => {
           trigger: null,
         });
 
-        Vibration.vibrate([500, 200, 500, 200, 500], true);
+        // Vibración continua
+        Vibration.vibrate([1000, 500], true);
       }
     }
   }
@@ -132,6 +138,7 @@ export default function Index() {
     setIsMonitoring,
     setAlertRadius,
     setHasAlerted,
+    setDistance, // ← AGREGAR ESTO
     savePlaces,
     selectSavedPlace,
   } = useGPSStore();
@@ -174,7 +181,21 @@ export default function Index() {
         emoji: '🎯',
       };
 
+      // Usar la función del store para establecer destino
       await selectSavedPlace(newDestination);
+
+      // NUEVO: Calcular distancia inicial inmediatamente
+      if (currentLocation) {
+        const dist = calculateDistance(
+          currentLocation.lat,
+          currentLocation.lng,
+          newDestination.lat,
+          newDestination.lng
+        );
+        useGPSStore.getState().setDistance(dist);
+        console.log(`📏 Distancia inicial calculada: ${dist.toFixed(2)}m`);
+      }
+
       setShowMapModal(false);
       console.log(
         `🎯 Destino establecido: ${selectedMapLocation.lat.toFixed(6)}, ${selectedMapLocation.lng.toFixed(6)}`
@@ -251,9 +272,14 @@ export default function Index() {
     try {
       console.log('🔊 Reproduciendo alarma...');
 
+      // Primero, descartar cualquier notificación anterior
+      await Notifications.dismissAllNotificationsAsync();
+
+      // Vibración continua
       const vibratePattern = [1000, 500];
       Vibration.vibrate(vibratePattern, true);
 
+      // UNA SOLA notificación persistente
       await Notifications.scheduleNotificationAsync({
         content: {
           title: '🔔 ¡LLEGASTE A TU DESTINO!',
@@ -747,7 +773,6 @@ export default function Index() {
               Mantén presionado para eliminar
             </Text>
           </View>
-
           <View className="m-4 rounded-3xl bg-white p-5 shadow-sm">
             <View className="mb-2 flex w-full flex-row items-center gap-2">
               <MaterialIcons name="radar" size={24} color="black" />

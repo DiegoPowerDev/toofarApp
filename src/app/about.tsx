@@ -46,11 +46,6 @@ export default function About() {
             <Text className="font-bold">GPS Amigo</Text> es una aplicación diseñada para alertarte
             cuando te acerques a tu destino. Perfecta para viajes largos en transporte público.
           </Text>
-
-          <Text className="text-sm leading-6 text-gray-600">
-            La app utiliza tu <Text className="font-bold">GPS</Text> nativo para avisarte cuando
-            estés cerca de tu destino seleccionado por lo que no requiere conexión a internet.
-          </Text>
         </View>
 
         {/* Cómo usar */}
@@ -115,8 +110,8 @@ export default function About() {
               />
             </View>
             <Text className="text-sm leading-6 text-gray-600">
-              Cuando llegues cerca de tu destino, recibirás una notificación con sonido y vibración
-              para avisarte.
+              Cuando llegues ingreses al radio del destino seleccionado se activará una alarma que
+              te alertará.
             </Text>
           </View>
         </View>
@@ -126,16 +121,6 @@ export default function About() {
           <Text className="mb-3 px-3 text-xl font-bold text-gray-800">Características</Text>
 
           <View className="mb-3 flex-row items-center gap-4 rounded-2xl bg-lime-400 p-2 px-3">
-            <Entypo name="map" size={24} color="black" />
-            <View className="flex-1">
-              <Text className="text-base font-semibold text-gray-800">Mapas nativos</Text>
-              <Text className="text-sm text-gray-600">
-                Usa Apple Maps en iOS y mapas del sistema en Android
-              </Text>
-            </View>
-          </View>
-
-          <View className="mb-3 flex-row items-center gap-4 rounded-2xl bg-amber-400 p-2 px-3">
             <Feather name="bell" size={24} color="black" />
             <View className="flex-1">
               <Text className="text-base font-semibold text-gray-800">Alertas potentes</Text>
@@ -167,7 +152,7 @@ export default function About() {
             </View>
           </View>
 
-          <View className="mb-3 flex-row items-center gap-4 rounded-2xl bg-slate-300 p-2 px-3">
+          <View className="mb-3 flex-row items-center gap-4 rounded-2xl bg-amber-400 p-2 px-3">
             <MaterialIcons name="radar" size={24} color="black" />
             <View className="flex-1">
               <Text className="text-base font-semibold text-gray-800">Radio personalizable</Text>
@@ -182,7 +167,7 @@ export default function About() {
         <View className="m-4 rounded-3xl bg-white p-5 shadow-sm">
           <Text className="mb-3 text-xl font-bold text-gray-800">Consejos importantes</Text>
 
-          <View className="mb-3 rounded-2xl bg-yellow-200 p-4">
+          <View className="mb-3 rounded-2xl bg-amber-200 p-4">
             <View className="flex-col gap-2">
               <View className="flex-row">
                 <Foundation name="alert" size={24} color="black" />
@@ -195,7 +180,7 @@ export default function About() {
             </View>
           </View>
 
-          <View className="mb-3 rounded-2xl bg-amber-100 p-4">
+          <View className="mb-3 rounded-2xl bg-green-100 p-4">
             <View className="flex-col gap-2">
               <View className="flex-row gap-2">
                 <Entypo name="battery" size={24} color="black" />
@@ -214,7 +199,10 @@ export default function About() {
                 <MaterialIcons name="signal-wifi-connected-no-internet-4" size={24} color="black" />
                 <Text className="font-bold">Conectividad: </Text>
               </View>
-              <Text className=" ">La app funciona sin internet, solo necesita GPS activo.</Text>
+              <Text className=" ">
+                Los lugares que hayas visto podras seguir viendolos sin conexión, es decir, puedes
+                seguir usando el APP sin conexión pero no podras ver lugares nuevos en el mapa .
+              </Text>
             </View>
           </View>
         </View>
@@ -247,8 +235,7 @@ export default function About() {
         {/* Footer */}
         <View className="items-center pb-8">
           <Text className="px-4 text-center text-sm text-gray-400">
-            Hecho con ❤️ para viajeros que se pasaron el paradero luego de volver cansados del
-            trabajo
+            Hecho con ❤️ para viajeros como yo
           </Text>
         </View>
       </ScrollView>

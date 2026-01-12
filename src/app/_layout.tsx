@@ -7,6 +7,8 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useGPSStore } from '@/store/useGPSStore';
 import { useEffect, useRef } from 'react';
 import * as Notifications from 'expo-notifications';
+import * as Location from 'expo-location';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Vibration } from 'react-native';
 
 // Configuración de notificaciones (solo una vez aquí)
@@ -30,8 +32,13 @@ Notifications.setNotificationCategoryAsync('ALERT_CATEGORY', [
   },
 ]);
 
+const LOCATION_TASK_NAME = 'background-location-task';
+const ALERT_SHOWN_KEY = '@alert_shown';
+const IS_MONITORING_KEY = '@is_monitoring';
+
 export default function Layout() {
-  const { initialize, initialized, getCurrentLocation } = useGPSStore();
+  const { initialize, initialized, getCurrentLocation, setIsMonitoring, setHasAlerted } =
+    useGPSStore();
   const notificationListener = useRef<Notifications.Subscription | undefined>(undefined);
   const responseListener = useRef<Notifications.Subscription | undefined>(undefined);
 
@@ -71,11 +78,40 @@ export default function Layout() {
       async (response) => {
         console.log('👆 Usuario interactuó con notificación:', response.actionIdentifier);
         if (response.actionIdentifier === 'STOP_MONITORING') {
-          // Llamar a la función de detener del store o componente
-          console.log('Detener desde notificación');
+          await stopMonitoringFromNotification();
         }
       }
     );
+  };
+
+  const stopMonitoringFromNotification = async () => {
+    try {
+      console.log('⏸️ Deteniendo monitoreo desde notificación...');
+
+      // Detener vibración
+      Vibration.cancel();
+
+      // Detener task en background
+      const hasStarted = await Location.hasStartedLocationUpdatesAsync(LOCATION_TASK_NAME);
+      if (hasStarted) {
+        await Location.stopLocationUpdatesAsync(LOCATION_TASK_NAME);
+      }
+
+      // Limpiar estado
+      await AsyncStorage.removeItem(ALERT_SHOWN_KEY);
+      await AsyncStorage.setItem(IS_MONITORING_KEY, 'false');
+
+      // Actualizar store
+      setIsMonitoring(false);
+      setHasAlerted(false);
+
+      // Descartar TODAS las notificaciones
+      await Notifications.dismissAllNotificationsAsync();
+
+      console.log('✅ Monitoreo detenido exitosamente');
+    } catch (error) {
+      console.error('❌ Error deteniendo desde notificación:', error);
+    }
   };
 
   return (
