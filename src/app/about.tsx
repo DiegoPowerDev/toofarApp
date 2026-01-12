@@ -1,19 +1,12 @@
 import React from 'react';
 import Ionicons from '@expo/vector-icons/Ionicons';
-
 import AntDesign from '@expo/vector-icons/AntDesign';
-
 import FontAwesome6 from '@expo/vector-icons/FontAwesome6';
-
 import Foundation from '@expo/vector-icons/Foundation';
-
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
-
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
-
 import Entypo from '@expo/vector-icons/Entypo';
 import Feather from '@expo/vector-icons/Feather';
-
 import { View, Text, ScrollView, TouchableOpacity, Linking, Image } from 'react-native';
 import { useRouter } from 'expo-router';
 

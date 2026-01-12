@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useRef } from 'react';
 import darkMapStyle from '@/data/mapstyle.json';
 import Entypo from '@expo/vector-icons/Entypo';
 import Feather from '@expo/vector-icons/Feather';
@@ -17,7 +17,7 @@ import {
   TextInput,
   Platform,
 } from 'react-native';
-import MapView, { Marker, Circle } from 'react-native-maps';
+import MapView, { Marker, Circle, PROVIDER_GOOGLE } from 'react-native-maps';
 import * as Location from 'expo-location';
 import * as Notifications from 'expo-notifications';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -42,34 +42,30 @@ interface Place {
 
 type MapMode = 'destination' | 'save-place';
 
-Notifications.setNotificationHandler({
-  handleNotification: async (): Promise<Notifications.NotificationBehavior> => ({
-    shouldShowAlert: true,
-    shouldPlaySound: true,
-    shouldSetBadge: false,
-    shouldShowBanner: true,
-    shouldShowList: true,
-  }),
-});
-
-// Definir categoría de notificación con acción de detener
-Notifications.setNotificationCategoryAsync('ALERT_CATEGORY', [
-  {
-    identifier: 'STOP_MONITORING',
-    buttonTitle: 'Detener Alerta',
-    options: {
-      opensAppToForeground: false,
-    },
-  },
-]);
-
-// Definir tarea de background
+// Constantes para AsyncStorage
 const LOCATION_TASK_NAME = 'background-location-task';
 const DESTINATION_KEY = '@destination';
 const ALERT_RADIUS_KEY = '@alert_radius';
 const ALERT_SHOWN_KEY = '@alert_shown';
 const IS_MONITORING_KEY = '@is_monitoring';
 
+// Función de cálculo de distancia
+function calculateDistance(lat1: number, lon1: number, lat2: number, lon2: number): number {
+  const R = 6371e3;
+  const φ1 = (lat1 * Math.PI) / 180;
+  const φ2 = (lat2 * Math.PI) / 180;
+  const Δφ = ((lat2 - lat1) * Math.PI) / 180;
+  const Δλ = ((lon2 - lon1) * Math.PI) / 180;
+
+  const a =
+    Math.sin(Δφ / 2) * Math.sin(Δφ / 2) +
+    Math.cos(φ1) * Math.cos(φ2) * Math.sin(Δλ / 2) * Math.sin(Δλ / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+
+  return R * c;
+}
+
+// Tarea de background (debe estar FUERA del componente)
 TaskManager.defineTask(LOCATION_TASK_NAME, async ({ data, error }: any) => {
   if (error) {
     console.error(error);
@@ -102,7 +98,6 @@ TaskManager.defineTask(LOCATION_TASK_NAME, async ({ data, error }: any) => {
       if (distance <= alertRadius && !alertShown) {
         await AsyncStorage.setItem(ALERT_SHOWN_KEY, 'true');
 
-        // UNA SOLA notificación en background también
         await Notifications.scheduleNotificationAsync({
           content: {
             title: '🔔 ¡LLEGASTE A TU DESTINO!',
@@ -116,27 +111,11 @@ TaskManager.defineTask(LOCATION_TASK_NAME, async ({ data, error }: any) => {
           trigger: null,
         });
 
-        // Vibración continua
         Vibration.vibrate([500, 200, 500, 200, 500], true);
       }
     }
   }
 });
-
-function calculateDistance(lat1: number, lon1: number, lat2: number, lon2: number): number {
-  const R = 6371e3;
-  const φ1 = (lat1 * Math.PI) / 180;
-  const φ2 = (lat2 * Math.PI) / 180;
-  const Δφ = ((lat2 - lat1) * Math.PI) / 180;
-  const Δλ = ((lon2 - lon1) * Math.PI) / 180;
-
-  const a =
-    Math.sin(Δφ / 2) * Math.sin(Δφ / 2) +
-    Math.cos(φ1) * Math.cos(φ2) * Math.sin(Δλ / 2) * Math.sin(Δλ / 2);
-  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-
-  return R * c;
-}
 
 export default function Index() {
   // Zustand store
@@ -164,12 +143,11 @@ export default function Index() {
   const [newPlaceName, setNewPlaceName] = useState<string>('');
   const [showNameModal, setShowNameModal] = useState<boolean>(false);
 
+  // Referencias
   const mapRef = useRef<MapView>(null);
   const locationSubscription = useRef<Location.LocationSubscription | null>(null);
   const alarmIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const router = useRouter();
-
-  // Inicializar solo UNA VEZ
 
   const openMapForDestination = (): void => {
     console.log('🗺️ Abriendo mapa para destino');
@@ -196,7 +174,6 @@ export default function Index() {
         emoji: '🎯',
       };
 
-      // Usar la función del store
       await selectSavedPlace(newDestination);
       setShowMapModal(false);
       console.log(
@@ -213,7 +190,7 @@ export default function Index() {
       showToast(
         'error',
         'Ingresa un nombre para el lugar',
-        'Porfavor ingresa un nombre para el lugar'
+        'Por favor ingresa un nombre para el lugar'
       );
       return;
     }
@@ -274,11 +251,9 @@ export default function Index() {
     try {
       console.log('🔊 Reproduciendo alarma...');
 
-      // Vibración continua (1 segundo vibra, 0.5 segundos pausa)
       const vibratePattern = [1000, 500];
       Vibration.vibrate(vibratePattern, true);
 
-      // UNA SOLA notificación persistente
       await Notifications.scheduleNotificationAsync({
         content: {
           title: '🔔 ¡LLEGASTE A TU DESTINO!',
@@ -294,7 +269,6 @@ export default function Index() {
       console.log('✅ Alarma activada con vibración continua');
     } catch (error) {
       console.log('❌ Error reproduciendo alarma:', error);
-      // Fallback: vibración continua al menos
       Vibration.vibrate([1000, 500], true);
     }
   };
@@ -302,16 +276,13 @@ export default function Index() {
   const stopAlarm = async (): Promise<void> => {
     console.log('🔇 Deteniendo alarma...');
 
-    // Detener vibración
     Vibration.cancel();
 
-    // Limpiar cualquier intervalo (por seguridad)
     if (alarmIntervalRef.current) {
       clearInterval(alarmIntervalRef.current);
       alarmIntervalRef.current = null;
     }
 
-    // Descartar todas las notificaciones
     await Notifications.dismissAllNotificationsAsync();
 
     console.log('✅ Alarma detenida completamente');
@@ -367,7 +338,6 @@ export default function Index() {
               lng: location.coords.longitude,
             };
 
-            // Actualizar mediante el store
             useGPSStore.getState().setCurrentLocation(coords);
 
             const dist = useGPSStore.getState().distance;
@@ -378,8 +348,6 @@ export default function Index() {
               console.log('🔔 ¡ALERTA ACTIVADA! Dentro del radio');
               setHasAlerted(true);
               playAlarm();
-
-              // NO programar más notificaciones aquí, ya está en playAlarm()
             }
           }
         );
@@ -438,6 +406,7 @@ export default function Index() {
     <View className="flex-1 bg-black/80">
       <StatusBar barStyle="light-content" />
 
+      {/* Modal de Mapa */}
       <Modal visible={showMapModal} animationType="slide">
         <View className="flex-1 bg-white">
           <View className="flex-row items-center justify-between bg-amber-600 px-4 pb-4 pt-12">
@@ -459,7 +428,7 @@ export default function Index() {
           {currentLocation?.lat && currentLocation?.lng ? (
             <View className="flex-1">
               <MapView
-                // provider={PROVIDER_GOOGLE}
+                provider={PROVIDER_GOOGLE}
                 customMapStyle={Platform.OS === 'android' ? darkMapStyle : undefined}
                 ref={mapRef}
                 style={{ flex: 1 }}
@@ -547,6 +516,7 @@ export default function Index() {
         </View>
       </Modal>
 
+      {/* Modal de Nombre */}
       <Modal visible={showNameModal} animationType="fade" transparent={true}>
         <View className="flex-1 items-center justify-center bg-black/50">
           <View className="w-4/5 max-w-md rounded-3xl bg-white p-6">
@@ -579,257 +549,254 @@ export default function Index() {
         </View>
       </Modal>
 
+      {/* Pantalla de carga */}
       {!initialized ? (
-        <View className="flex-1 flex-col items-center justify-center bg-amber-600">
+        <View className="flex-1 items-center justify-center bg-amber-600">
           <View className="items-center">
             <Entypo name="location" size={80} color="white" className="mb-5" />
-
+            <Text className="mb-2 text-4xl font-bold text-white">GPS Amigo</Text>
             <Text className="mb-8 text-center text-lg text-white/80">
-              Cargando datos guardados, gps y permisos...
+              Cargando datos guardados, GPS y permisos...
             </Text>
 
-            {/* Indicador de carga */}
             <View className="flex-row gap-2">
               <View className="h-3 w-3 animate-pulse rounded-full bg-white" />
-              <View className="h-3 w-3 animate-pulse rounded-full bg-white delay-150" />
-              <View className="h-3 w-3 animate-pulse rounded-full bg-white delay-300" />
+              <View className="h-3 w-3 animate-pulse rounded-full bg-white" />
+              <View className="h-3 w-3 animate-pulse rounded-full bg-white" />
             </View>
           </View>
         </View>
       ) : (
         <ScrollView className="flex-1">
-          <View>
-            <View className=" h-32 flex-col justify-center bg-amber-600 py-2  ">
-              <View className="mb-1 flex flex-row items-center justify-between gap-2">
-                <Entypo className="pl-6" name="location" size={30} color="white" />
-                <Text className="text-3xl font-bold text-white"> GPS Amigo</Text>
-                <TouchableOpacity
-                  className="flex flex-row items-center justify-end rounded-l-3xl bg-white p-2 shadow-sm"
-                  onPress={() => router.push('/about')}>
-                  <AntDesign name="info-circle" size={30} color="black" />
-                </TouchableOpacity>
-              </View>
-            </View>
-            {hasAlerted && (
-              <View className="m-5 items-center rounded-3xl bg-red-500 p-8">
-                <Text className="mb-2.5 text-6xl">🔔</Text>
-                <Text className="mb-2.5 text-3xl font-bold text-white">¡YA LLEGASTE!</Text>
-                <Text className="mb-1 text-lg text-white/90">Estás cerca de:</Text>
-                <Text className="mb-2.5 text-2xl font-bold text-white">{destination?.name}</Text>
-                <Text className="mb-5 text-xl text-white">
-                  {distance && formatDistance(distance)}
-                </Text>
-                <TouchableOpacity className="rounded-2xl bg-white px-8 py-4" onPress={dismissAlert}>
-                  <Text className="text-lg font-bold text-red-500">OK, Entendido</Text>
-                </TouchableOpacity>
-              </View>
-            )}
-
-            <View className="m-4 rounded-3xl bg-white p-5 shadow-sm">
-              <View className="mb-4 flex flex-row items-center gap-2">
-                <Entypo name="map" size={24} color="black" />
-                <Text className=" text-xl font-bold text-gray-800"> Mapa</Text>
-              </View>
-              {currentLocation && (
-                <View className="mb-4 overflow-hidden rounded-2xl">
-                  <MapView
-                    // provider={PROVIDER_GOOGLE}
-                    customMapStyle={Platform.OS === 'android' ? darkMapStyle : undefined}
-                    className="h-48 w-full"
-                    region={{
-                      latitude: currentLocation?.lat ?? -12.0464, // ← Valor por defecto
-                      longitude: currentLocation?.lng ?? -77.0428, // ← Valor por defecto
-                      latitudeDelta: 0.02,
-                      longitudeDelta: 0.02,
-                    }}
-                    scrollEnabled={false}
-                    zoomEnabled={false}>
-                    {currentLocation && (
-                      <Marker
-                        coordinate={{
-                          latitude: currentLocation.lat,
-                          longitude: currentLocation.lng,
-                        }}
-                        pinColor="blue"
-                      />
-                    )}
-
-                    {destination && (
-                      <>
-                        <Marker
-                          coordinate={{
-                            latitude: destination.lat,
-                            longitude: destination.lng,
-                          }}
-                          pinColor="red"
-                        />
-                        <Circle
-                          center={{
-                            latitude: destination.lat,
-                            longitude: destination.lng,
-                          }}
-                          radius={alertRadius}
-                          fillColor="rgba(99, 102, 241, 0.2)"
-                          strokeColor="rgba(99, 102, 241, 0.5)"
-                          strokeWidth={2}
-                        />
-                      </>
-                    )}
-
-                    {savedPlaces.map((place, index) => (
-                      <Marker
-                        key={index}
-                        coordinate={{
-                          latitude: place.lat,
-                          longitude: place.lng,
-                        }}
-                        pinColor="green"
-                      />
-                    ))}
-                  </MapView>
-
-                  <TouchableOpacity
-                    className="items-center bg-amber-600 p-3"
-                    onPress={openMapForDestination}>
-                    <Text className="text-base font-semibold text-white">
-                      📍 Abrir mapa completo
-                    </Text>
-                  </TouchableOpacity>
-                </View>
-              )}
-            </View>
-
-            <View className="m-4 rounded-3xl bg-white p-5 shadow-sm">
-              <View className="flex flex-row gap-2">
-                <Feather name="target" size={24} color="black" />
-                <Text className="mb-4 text-xl font-bold text-gray-800">Mi Destino</Text>
-              </View>
-              {destination ? (
-                <View className="mb-4 rounded-2xl bg-amber-200 p-5">
-                  <Text className="mb-1 text-xl font-bold text-indigo-950">{destination.name}</Text>
-                  <Text className="mb-2.5 text-xs text-indigo-700">
-                    {destination.lat.toFixed(6)}, {destination.lng.toFixed(6)}
-                  </Text>
-                  {distance !== null && (
-                    <View className="mt-3 rounded-xl bg-white/60 p-3">
-                      <Text className="text-center text-sm font-semibold text-indigo-700">
-                        📏 Distancia actual
-                      </Text>
-                      <Text className="text-center text-2xl font-bold text-indigo-950">
-                        {formatDistance(distance)}
-                      </Text>
-                    </View>
-                  )}
-                </View>
-              ) : (
-                <Text className="mb-4 text-sm text-gray-400">No hay destino establecido</Text>
-              )}
+          {/* Header */}
+          <View className="h-32 flex-col justify-center bg-amber-600 py-2">
+            <View className="mb-1 flex flex-row items-center justify-between gap-2">
+              <Entypo className="pl-6" name="location" size={30} color="white" />
+              <Text className="text-3xl font-bold text-white">GPS Amigo</Text>
               <TouchableOpacity
-                className="items-center rounded-xl bg-amber-600 p-4"
-                onPress={openMapForDestination}>
-                <Text className="text-base font-bold text-white">📍 Seleccionar en Mapa</Text>
+                className="flex flex-row items-center justify-end rounded-l-3xl bg-white p-2 shadow-sm"
+                onPress={() => router.push('/about')}>
+                <AntDesign name="info-circle" size={30} color="black" />
               </TouchableOpacity>
             </View>
+          </View>
 
-            <View className="m-4 rounded-3xl bg-white p-5 shadow-sm">
-              <View className="mb-4 flex-row items-center justify-between">
-                <View className="flex flex-row gap-2">
-                  <Entypo
-                    name="star-outlined"
-                    size={24}
-                    color="black"
-                    className="text-yellow-500"
-                  />
-                  <Text className="text-xl font-bold text-gray-800">Mis lugares</Text>
-                </View>
-                <TouchableOpacity onPress={openMapForSavePlace}>
-                  <Text className="text-base font-bold text-indigo-500">+ Agregar</Text>
-                </TouchableOpacity>
-              </View>
-              {savedPlaces.length === 0 ? (
-                <Text className="my-5 text-center text-gray-400">No hay lugares guardados</Text>
-              ) : (
-                savedPlaces.map((place, index) => (
-                  <TouchableOpacity
-                    key={index}
-                    className="mb-2.5 flex-row items-center justify-between rounded-xl bg-gray-50 p-4"
-                    onPress={() => selectSavedPlace(place)}
-                    onLongPress={() => deleteSavedPlace(index)}>
-                    <View className="flex-row items-center gap-3">
-                      <Text className="text-3xl">{place.emoji}</Text>
-                      <View className="flex-1">
-                        <Text className="text-base font-semibold text-gray-800">{place.name}</Text>
-                        <Text className="text-xs text-gray-500">
-                          {place.lat.toFixed(4)}, {place.lng.toFixed(4)}
-                        </Text>
-                        {placeDistances[index] !== undefined && (
-                          <View className="mt-1 rounded-lg bg-blue-50 px-2 py-1">
-                            <Text className="text-xs font-semibold text-blue-700">
-                              📍 {formatDistance(placeDistances[index])}
-                            </Text>
-                          </View>
-                        )}
-                      </View>
-                    </View>
-                    <Text className="text-2xl text-gray-400">›</Text>
-                  </TouchableOpacity>
-                ))
-              )}
-              <Text className="mt-2.5 text-center text-xs text-gray-400">
-                Mantén presionado para eliminar
+          {/* Alerta de llegada */}
+          {hasAlerted && (
+            <View className="m-5 items-center rounded-3xl bg-red-500 p-8">
+              <Text className="mb-2.5 text-6xl">🔔</Text>
+              <Text className="mb-2.5 text-3xl font-bold text-white">¡YA LLEGASTE!</Text>
+              <Text className="mb-1 text-lg text-white/90">Estás cerca de:</Text>
+              <Text className="mb-2.5 text-2xl font-bold text-white">{destination?.name}</Text>
+              <Text className="mb-5 text-xl text-white">
+                {distance && formatDistance(distance)}
               </Text>
+              <TouchableOpacity className="rounded-2xl bg-white px-8 py-4" onPress={dismissAlert}>
+                <Text className="text-lg font-bold text-red-500">OK, Entendido</Text>
+              </TouchableOpacity>
             </View>
+          )}
 
-            <View className="m-4 rounded-3xl bg-white p-5 shadow-sm">
-              <View className="mb-2 flex w-full flex-row items-center gap-2">
-                <MaterialIcons name="radar" size={24} color="black" />
-                <Text className="text-xl font-bold text-gray-800">Distancia de Alerta</Text>
-              </View>
-              <View className="gap-2.5">
-                {[100, 200, 300, 500, 1000].map((radius) => (
-                  <TouchableOpacity
-                    key={radius}
-                    className={`items-center rounded-xl p-4 ${
-                      alertRadius === radius ? 'bg-amber-600' : 'bg-gray-100'
-                    }`}
-                    onPress={() => handleRadiusChange(radius)}>
-                    <Text
-                      className={`text-base font-semibold ${
-                        alertRadius === radius ? 'text-white' : 'text-gray-700'
-                      }`}>
-                      {formatDistance(radius)}
-                    </Text>
-                  </TouchableOpacity>
-                ))}
-              </View>
+          {/* Mapa pequeño */}
+          <View className="m-4 rounded-3xl bg-white p-5 shadow-sm">
+            <View className="mb-4 flex flex-row items-center gap-2">
+              <Entypo name="map" size={24} color="black" />
+              <Text className="text-xl font-bold text-gray-800">Mapa</Text>
             </View>
+            {currentLocation && (
+              <View className="mb-4 overflow-hidden rounded-2xl">
+                <MapView
+                  provider={PROVIDER_GOOGLE}
+                  customMapStyle={Platform.OS === 'android' ? darkMapStyle : undefined}
+                  className="h-48 w-full"
+                  region={{
+                    latitude: currentLocation?.lat ?? -12.0464,
+                    longitude: currentLocation?.lng ?? -77.0428,
+                    latitudeDelta: 0.02,
+                    longitudeDelta: 0.02,
+                  }}
+                  scrollEnabled={false}
+                  zoomEnabled={false}>
+                  {currentLocation && (
+                    <Marker
+                      coordinate={{
+                        latitude: currentLocation.lat,
+                        longitude: currentLocation.lng,
+                      }}
+                      pinColor="blue"
+                    />
+                  )}
 
-            <TouchableOpacity
-              className={`m-5 items-center rounded-2xl p-5 ${
-                !destination ? 'bg-gray-300' : isMonitoring ? 'bg-red-500' : 'bg-green-500'
-              }`}
-              onPress={toggleMonitoring}
-              disabled={!destination}>
-              {isMonitoring ? (
-                <View className="flex w-full flex-row items-center justify-center gap-2">
-                  <Text className="text-lg font-bold text-white">Detener</Text>
-                  <FontAwesome name="hand-stop-o" size={24} color="white" />
-                </View>
-              ) : (
-                <View className="flex w-full flex-row items-center justify-center gap-2">
-                  <FontAwesome5 name="running" size={24} color="white" />
-                  <Text className="text-lg font-bold text-white">Comencemos</Text>
-                </View>
-              )}
-            </TouchableOpacity>
+                  {destination && (
+                    <>
+                      <Marker
+                        coordinate={{
+                          latitude: destination.lat,
+                          longitude: destination.lng,
+                        }}
+                        pinColor="red"
+                      />
+                      <Circle
+                        center={{
+                          latitude: destination.lat,
+                          longitude: destination.lng,
+                        }}
+                        radius={alertRadius}
+                        fillColor="rgba(99, 102, 241, 0.2)"
+                        strokeColor="rgba(99, 102, 241, 0.5)"
+                        strokeWidth={2}
+                      />
+                    </>
+                  )}
 
-            {isMonitoring && (
-              <View className="mb-5 flex-row items-center justify-center gap-2.5">
-                <View className="h-2.5 w-2.5 rounded-full bg-green-500" />
-                <Text className="text-base font-semibold text-green-600">Alerta activada</Text>
+                  {savedPlaces.map((place, index) => (
+                    <Marker
+                      key={index}
+                      coordinate={{
+                        latitude: place.lat,
+                        longitude: place.lng,
+                      }}
+                      pinColor="green"
+                    />
+                  ))}
+                </MapView>
+
+                <TouchableOpacity
+                  className="items-center bg-amber-600 p-3"
+                  onPress={openMapForDestination}>
+                  <Text className="text-base font-semibold text-white">📍 Abrir mapa completo</Text>
+                </TouchableOpacity>
               </View>
             )}
           </View>
+
+          {/* Mi Destino */}
+          <View className="m-4 rounded-3xl bg-white p-5 shadow-sm">
+            <View className="flex flex-row gap-2">
+              <Feather name="target" size={24} color="black" />
+              <Text className="mb-4 text-xl font-bold text-gray-800">Mi Destino</Text>
+            </View>
+            {destination ? (
+              <View className="mb-4 rounded-2xl bg-amber-200 p-5">
+                <Text className="mb-1 text-xl font-bold text-indigo-950">{destination.name}</Text>
+                <Text className="mb-2.5 text-xs text-indigo-700">
+                  {destination.lat.toFixed(6)}, {destination.lng.toFixed(6)}
+                </Text>
+                {distance !== null && (
+                  <View className="mt-3 rounded-xl bg-white/60 p-3">
+                    <Text className="text-center text-sm font-semibold text-indigo-700">
+                      📏 Distancia actual
+                    </Text>
+                    <Text className="text-center text-2xl font-bold text-indigo-950">
+                      {formatDistance(distance)}
+                    </Text>
+                  </View>
+                )}
+              </View>
+            ) : (
+              <Text className="mb-4 text-sm text-gray-400">No hay destino establecido</Text>
+            )}
+            <TouchableOpacity
+              className="items-center rounded-xl bg-amber-600 p-4"
+              onPress={openMapForDestination}>
+              <Text className="text-base font-bold text-white">📍 Seleccionar en Mapa</Text>
+            </TouchableOpacity>
+          </View>
+
+          {/* Mis lugares */}
+          <View className="m-4 rounded-3xl bg-white p-5 shadow-sm">
+            <View className="mb-4 flex-row items-center justify-between">
+              <View className="flex flex-row gap-2">
+                <Entypo name="star-outlined" size={24} color="black" />
+                <Text className="text-xl font-bold text-gray-800">Mis lugares</Text>
+              </View>
+              <TouchableOpacity onPress={openMapForSavePlace}>
+                <Text className="text-base font-bold text-indigo-500">+ Agregar</Text>
+              </TouchableOpacity>
+            </View>
+            {savedPlaces.length === 0 ? (
+              <Text className="my-5 text-center text-gray-400">No hay lugares guardados</Text>
+            ) : (
+              savedPlaces.map((place, index) => (
+                <TouchableOpacity
+                  key={index}
+                  className="mb-2.5 flex-row items-center justify-between rounded-xl bg-gray-50 p-4"
+                  onPress={() => selectSavedPlace(place)}
+                  onLongPress={() => deleteSavedPlace(index)}>
+                  <View className="flex-row items-center gap-3">
+                    <Text className="text-3xl">{place.emoji}</Text>
+                    <View className="flex-1">
+                      <Text className="text-base font-semibold text-gray-800">{place.name}</Text>
+                      <Text className="text-xs text-gray-500">
+                        {place.lat.toFixed(4)}, {place.lng.toFixed(4)}
+                      </Text>
+                      {placeDistances[index] !== undefined && (
+                        <View className="mt-1 rounded-lg bg-blue-50 px-2 py-1">
+                          <Text className="text-xs font-semibold text-blue-700">
+                            📍 {formatDistance(placeDistances[index])}
+                          </Text>
+                        </View>
+                      )}
+                    </View>
+                  </View>
+                  <Text className="text-2xl text-gray-400">›</Text>
+                </TouchableOpacity>
+              ))
+            )}
+            <Text className="mt-2.5 text-center text-xs text-gray-400">
+              Mantén presionado para eliminar
+            </Text>
+          </View>
+
+          <View className="m-4 rounded-3xl bg-white p-5 shadow-sm">
+            <View className="mb-2 flex w-full flex-row items-center gap-2">
+              <MaterialIcons name="radar" size={24} color="black" />
+              <Text className="text-xl font-bold text-gray-800">Distancia de Alerta</Text>
+            </View>
+            <View className="gap-2.5">
+              {[100, 200, 300, 500, 1000].map((radius) => (
+                <TouchableOpacity
+                  key={radius}
+                  className={`items-center rounded-xl p-4 ${
+                    alertRadius === radius ? 'bg-amber-600' : 'bg-gray-100'
+                  }`}
+                  onPress={() => handleRadiusChange(radius)}>
+                  <Text
+                    className={`text-base font-semibold ${
+                      alertRadius === radius ? 'text-white' : 'text-gray-700'
+                    }`}>
+                    {formatDistance(radius)}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          </View>
+
+          <TouchableOpacity
+            className={`m-5 items-center rounded-2xl p-5 ${
+              !destination ? 'bg-gray-300' : isMonitoring ? 'bg-red-500' : 'bg-green-500'
+            }`}
+            onPress={toggleMonitoring}
+            disabled={!destination}>
+            {isMonitoring ? (
+              <View className="flex w-full flex-row items-center justify-center gap-2">
+                <Text className="text-lg font-bold text-white">Detener</Text>
+                <FontAwesome name="hand-stop-o" size={24} color="white" />
+              </View>
+            ) : (
+              <View className="flex w-full flex-row items-center justify-center gap-2">
+                <FontAwesome5 name="running" size={24} color="white" />
+                <Text className="text-lg font-bold text-white">Comencemos</Text>
+              </View>
+            )}
+          </TouchableOpacity>
+
+          {isMonitoring && (
+            <View className="mb-5 flex-row items-center justify-center gap-2.5">
+              <View className="h-2.5 w-2.5 rounded-full bg-green-500" />
+              <Text className="text-base font-semibold text-green-600">Alerta activada</Text>
+            </View>
+          )}
         </ScrollView>
       )}
     </View>
